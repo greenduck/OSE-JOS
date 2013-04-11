@@ -96,10 +96,16 @@ boot_alloc(uint32_t n)
 	// Allocate a chunk large enough to hold 'n' bytes, then update
 	// nextfree.  Make sure nextfree is kept aligned
 	// to a multiple of PGSIZE.
-	//
-	// LAB 2: Your code here.
+	if (n > 0) {
+		if (nextfree >= (char *)(KERNBASE + npages * PGSIZE))
+			panic("out of memory");
 
-	return NULL;
+		result = nextfree;
+		nextfree = ROUNDUP((char *)(nextfree + n), PGSIZE);
+		return result;
+	}
+
+	return nextfree;
 }
 
 // Set up a two-level page table:
@@ -120,9 +126,6 @@ mem_init(void)
 	// Find out how much memory the machine has (npages & npages_basemem).
 	i386_detect_memory();
 
-	// Remove this line when you're ready to test this function.
-	panic("mem_init: This function is not finished\n");
-
 	//////////////////////////////////////////////////////////////////////
 	// create initial page directory.
 	kern_pgdir = (pde_t *) boot_alloc(PGSIZE);
@@ -142,7 +145,7 @@ mem_init(void)
 	// The kernel uses this array to keep track of physical pages: for
 	// each physical page, there is a corresponding struct PageInfo in this
 	// array.  'npages' is the number of physical pages in memory.
-	// Your code goes here:
+	pages = (struct PageInfo *)boot_alloc(npages * sizeof(struct PageInfo));
 
 
 	//////////////////////////////////////////////////////////////////////
@@ -155,6 +158,7 @@ mem_init(void)
 
 	check_page_free_list(1);
 	check_page_alloc();
+	panic("------------------------ work in progess ------------------------");
 	check_page();
 
 	//////////////////////////////////////////////////////////////////////
@@ -229,28 +233,38 @@ mem_init(void)
 void
 page_init(void)
 {
-	// The example code here marks all physical pages as free.
-	// However this is not truly the case.  What memory is free?
-	//  1) Mark physical page 0 as in use.
-	//     This way we preserve the real-mode IDT and BIOS structures
-	//     in case we ever need them.  (Currently we don't, but...)
-	//  2) The rest of base memory, [PGSIZE, npages_basemem * PGSIZE)
-	//     is free.
-	//  3) Then comes the IO hole [IOPHYSMEM, EXTPHYSMEM), which must
-	//     never be allocated.
-	//  4) Then extended memory [EXTPHYSMEM, ...).
-	//     Some of it is in use, some is free. Where is the kernel
-	//     in physical memory?  Which pages are already in use for
-	//     page tables and other data structures?
-	//
-	// Change the code to reflect this.
-	// NB: DO NOT actually touch the physical memory corresponding to
-	// free pages!
+	/*
+	 * Mark all physical pages as free, except those that are not:
+	 * 1) Mark physical page 0 as in use.
+	 *    This way we preserve the real-mode IDT and BIOS structures
+	 *    in case we ever need them.  (Currently we don't, but...)
+	 * 2) The rest of base memory, [PGSIZE, npages_basemem * PGSIZE)
+	 *    is free.
+	 * 3) Then comes the IO hole [IOPHYSMEM, EXTPHYSMEM), which must
+	 *    never be allocated.
+	 * 4) Then extended memory [EXTPHYSMEM, ...).
+	 *    Some of it is in use, some is free. Where is the kernel
+	 *    in physical memory?  Which pages are already in use for
+	 *    page tables and other data structures?
+	 */
 	size_t i;
+
+	page_free_list = NULL;
 	for (i = 0; i < npages; i++) {
-		pages[i].pp_ref = 0;
-		pages[i].pp_link = page_free_list;
-		page_free_list = &pages[i];
+		if ( (i == 0) ||
+		     ((PGADDR(0, i, 0) >= (void *)IOPHYSMEM) && (PGADDR(0, i, 0) < (void *)PADDR(boot_alloc(0)))) ) {
+			// pages in use
+			// (1), (3), (4)
+			pages[i].pp_ref = 0;
+			pages[i].pp_link = NULL;
+		}
+		else {
+			// free pages
+			// (2), (4)
+			pages[i].pp_ref = 0;
+			pages[i].pp_link = page_free_list;
+			page_free_list = &pages[i];
+		}
 	}
 }
 
@@ -261,13 +275,22 @@ page_init(void)
 // or via page_insert).
 //
 // Returns NULL if out of free memory.
-//
-// Hint: use page2kva and memset
 struct PageInfo *
 page_alloc(int alloc_flags)
 {
-	// Fill this function in
-	return 0;
+	struct PageInfo *ret;
+
+	ret = page_free_list;
+	if (ret != NULL) {
+		page_free_list = ret->pp_link;
+		ret->pp_link = NULL;
+		if (alloc_flags & ALLOC_ZERO)
+			memset(page2kva(ret), 0, PGSIZE);
+
+		assert(ret->pp_ref == 0);
+	}
+
+	return ret;
 }
 
 //
@@ -277,7 +300,12 @@ page_alloc(int alloc_flags)
 void
 page_free(struct PageInfo *pp)
 {
-	// Fill this function in
+	assert(page2pa(pp) % PGSIZE == 0);
+	assert(pp->pp_link == NULL);
+	assert(pp->pp_ref == 0);
+
+	pp->pp_link = page_free_list;
+	page_free_list = pp;
 }
 
 //
