@@ -158,8 +158,8 @@ mem_init(void)
 
 	check_page_free_list(1);
 	check_page_alloc();
-	panic("------------------------ work in progess ------------------------");
 	check_page();
+	panic("------------------------ work in progess ------------------------");
 
 	//////////////////////////////////////////////////////////////////////
 	// Now we set up virtual memory
@@ -344,8 +344,34 @@ page_decref(struct PageInfo* pp)
 pte_t *
 pgdir_walk(pde_t *pgdir, const void *va, int create)
 {
-	// Fill this function in
-	return NULL;
+	pde_t *pgdir_entry;	// page directory entry
+	physaddr_t pgtab;	// page table
+	struct PageInfo *pp;
+
+	pgdir_entry = &pgdir[PDX(va)];
+	if (*pgdir_entry & PTE_P) {
+		/* present */
+		pgtab = PTE_ADDR(*pgdir_entry);
+	}
+	else if ( create ) {
+		pp = page_alloc(ALLOC_ZERO);
+		if (pp == NULL)
+			return NULL;
+
+		++pp->pp_ref;
+		pgtab = page2pa(pp);
+		/*
+		 * x86 MMU checks permission bits in both the page directory
+		 * and the page table, so it's safe to leave permissions in the page directory
+		 * more permissive than is strictly necessary
+		 */
+		*pgdir_entry = pgtab | PTE_U | PTE_W | PTE_P;
+	}
+	else {
+		return NULL;
+	}
+
+	return &((pte_t *)KADDR(pgtab))[PTX(va)];
 }
 
 //
@@ -356,12 +382,31 @@ pgdir_walk(pde_t *pgdir, const void *va, int create)
 // This function is only intended to set up the ``static'' mappings
 // above UTOP. As such, it should *not* change the pp_ref field on the
 // mapped pages.
+// 
+// Note:
+// Assume pages containing the physical addresses are already allocated
 //
-// Hint: the TA solution uses pgdir_walk
 static void
 boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm)
 {
-	// Fill this function in
+	pte_t *pgtab_entry;
+
+	assert(size % PGSIZE == 0);
+
+	while (size != 0) {
+		pgtab_entry = pgdir_walk(pgdir, (void *)va, 1);
+		if (pgtab_entry == NULL)
+			panic("could not allocate page for page table");
+
+		if (*pgtab_entry & PTE_P)
+			panic("virtual address is already mapped");
+
+		*pgtab_entry = PTE_ADDR(pa) | perm | PTE_P;
+
+		va += PGSIZE;
+		pa += PGSIZE;
+		size -= PGSIZE;
+	}
 }
 
 //
@@ -376,7 +421,7 @@ boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm
 //   - pp->pp_ref should be incremented if the insertion succeeds.
 //   - The TLB must be invalidated if a page was formerly present at 'va'.
 //
-// Corner-case hint: Make sure to consider what happens when the same
+// Corner-case: Make sure to consider what happens when the same
 // pp is re-inserted at the same virtual address in the same pgdir.
 // However, try not to distinguish this case in your code, as this
 // frequently leads to subtle bugs; there's an elegant way to handle
@@ -386,13 +431,23 @@ boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm
 //   0 on success
 //   -E_NO_MEM, if page table couldn't be allocated
 //
-// Hint: The TA solution is implemented using pgdir_walk, page_remove,
-// and page2pa.
-//
 int
 page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)
 {
-	// Fill this function in
+	pte_t *pgtab_entry;
+
+	pgtab_entry = pgdir_walk(pgdir, va, 1);
+	if (pgtab_entry == NULL)
+		return -E_NO_MEM;
+
+	++pp->pp_ref;
+
+	if (*pgtab_entry & PTE_P) {
+		page_remove(pgdir, va);
+		tlb_invalidate(pgdir, va);
+	}
+
+	*pgtab_entry = page2pa(pp) | perm | PTE_P;
 	return 0;
 }
 
@@ -405,13 +460,19 @@ page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)
 //
 // Return NULL if there is no page mapped at va.
 //
-// Hint: the TA solution uses pgdir_walk and pa2page.
-//
 struct PageInfo *
 page_lookup(pde_t *pgdir, void *va, pte_t **pte_store)
 {
-	// Fill this function in
-	return NULL;
+	pte_t *pgtab_entry;
+
+	pgtab_entry = pgdir_walk(pgdir, va, 0);
+	if ((pgtab_entry == NULL) || !(*pgtab_entry & PTE_P))
+		return NULL;
+
+	if (pte_store != NULL)
+		*pte_store = pgtab_entry;
+
+	return pa2page(PTE_ADDR(*pgtab_entry));
 }
 
 //
@@ -426,13 +487,17 @@ page_lookup(pde_t *pgdir, void *va, pte_t **pte_store)
 //   - The TLB must be invalidated if you remove an entry from
 //     the page table.
 //
-// Hint: The TA solution is implemented using page_lookup,
-// 	tlb_invalidate, and page_decref.
-//
 void
 page_remove(pde_t *pgdir, void *va)
 {
-	// Fill this function in
+	pte_t *pgtab_entry;
+	struct PageInfo *pp;
+
+	pp = page_lookup(pgdir, va, &pgtab_entry);
+	*pgtab_entry = 0;
+	tlb_invalidate(pgdir, va);
+
+	page_decref(pp);
 }
 
 //
