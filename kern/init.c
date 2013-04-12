@@ -30,6 +30,7 @@ i386_init(void)
 	mem_init();
 
 	// Drop into the kernel monitor.
+	cprintf("------------------------ success ----------------------- \n");
 	while (1)
 		monitor(NULL);
 }
