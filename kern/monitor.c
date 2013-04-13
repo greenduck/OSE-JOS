@@ -11,6 +11,8 @@
 #include <kern/monitor.h>
 #include <kern/kdebug.h>
 
+#include <kern/pmap.h>
+
 #define CMDBUF_SIZE	80	// enough for one VGA text line
 
 
@@ -22,9 +24,10 @@ struct Command {
 };
 
 static struct Command commands[] = {
-	{ "help", "Display this list of commands", mon_help },
-	{ "kerninfo", "Display information about the kernel", mon_kerninfo },
-	{ "backtrace", "Display stack backtrace", mon_backtrace },
+	{ "help",		"Display this list of commands",		mon_help },
+	{ "kerninfo",		"Display information about the kernel",		mon_kerninfo },
+	{ "backtrace",		"Display stack backtrace",			mon_backtrace },
+	{ "showmappings",	"Display virtual memory pages mapping",		mon_showmappings },
 };
 #define NCOMMANDS (sizeof(commands)/sizeof(commands[0]))
 
@@ -82,6 +85,59 @@ mon_backtrace(int argc, char **argv, struct Trapframe *tf)
 
 		ebp = *((uint32_t *)ebp);
 	}
+	return 0;
+}
+
+
+
+#define TABENTRY_ADDR(addr)	(PTE_ADDR(addr) >> 12)
+#define TABENTRY_FLAGS(addr)	((addr) & 0xfff)
+
+int
+mon_showmappings(int argc, char **argv, struct Trapframe *tf)
+{
+	uintptr_t start, stop;
+	pde_t *pgdir_entry;
+	physaddr_t pgtab;
+	pte_t *pgtab_entry;
+
+	if (argc > 1) {
+		start = strtol(argv[1], NULL, 0);
+		if (argc > 2)
+			stop = strtol(argv[2], NULL, 0);
+		else
+			stop = start;
+	}
+	else {
+		cprintf("Erroneous arguments: \n");
+		cprintf("%s start-addr [stop-addr] \n", argv[0]);
+		return 0;
+	}
+
+	cprintf("index____  virt_addr_  page_dir___  page_tab___ \n");
+	for (start = ROUNDDOWN(start, PGSIZE), stop = ROUNDUP(stop, PGSIZE); start <= stop; start += PGSIZE) {
+		cprintf("%04d:%04d  0x%08x  ", PDX(start), PTX(start), start);
+
+		pgdir_entry = &kern_pgdir[PDX(start)];
+		if ( !(*pgdir_entry & PTE_P) ) {
+			cprintf("UNMAPPED");
+		}
+		else {
+			cprintf("[%05x|%03x]  ", TABENTRY_ADDR(*pgdir_entry), TABENTRY_FLAGS(*pgdir_entry));
+
+			pgtab = PTE_ADDR(*pgdir_entry);
+			pgtab_entry = &((pte_t *)KADDR(pgtab))[PTX(start)];
+			if ( !(*pgtab_entry & PTE_P) ) {
+				cprintf("UNMAPPED");
+			}
+			else {
+				cprintf("[%05x|%03x]  ", TABENTRY_ADDR(*pgtab_entry), TABENTRY_FLAGS(*pgtab_entry));
+			}
+		}
+
+		cprintf("\n");
+	}
+
 	return 0;
 }
 
