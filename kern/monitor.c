@@ -28,6 +28,7 @@ static struct Command commands[] = {
 	{ "kerninfo",		"Display information about the kernel",		mon_kerninfo },
 	{ "backtrace",		"Display stack backtrace",			mon_backtrace },
 	{ "showmappings",	"Display virtual memory pages mapping",		mon_showmappings },
+	{ "mapping_perms",	"Edit memory mapping permissions",		mon_mapping_perms },
 };
 #define NCOMMANDS (sizeof(commands)/sizeof(commands[0]))
 
@@ -136,6 +137,80 @@ mon_showmappings(int argc, char **argv, struct Trapframe *tf)
 		}
 
 		cprintf("\n");
+	}
+
+	return 0;
+}
+
+#define ALLOWED_FLAGS	(PTE_AVAIL | PTE_PCD | PTE_PWT | PTE_U | PTE_W)
+
+int
+mon_mapping_perms(int argc, char **argv, struct Trapframe *tf)
+{
+	int pgdir_index, pgtab_index;
+	char *insight;
+	int set_permissions = 0;
+	uint32_t new_permissions = 0;
+	pde_t *pgdir_entry;
+	physaddr_t pgtab;
+	pte_t *pgtab_entry;
+	uint32_t **entry;
+
+	if (argc > 1) {
+		pgdir_index = strtol(argv[1], &insight, 0);
+		if (*insight == ':')
+			pgtab_index = strtol(&insight[1], NULL, 0);
+		else
+			pgtab_index = -1;
+
+		if (argc > 2) {
+			new_permissions = strtol(argv[2], NULL, 0);
+			set_permissions = 1;
+		}
+	}
+	else {
+		cprintf("Erroneous arguments: \n");
+		cprintf("%s page-dir-index[:page-tab-index]  -  display permissions for page directory entry [or page table entry] \n", argv[0]);
+		cprintf("%s page-dir-index[:page-tab-index] new-perms  -  set new permissions for pagedir or pagetab entry \n", argv[0]);
+		return 0;
+	}
+
+	pgdir_entry = &kern_pgdir[pgdir_index];
+	entry = &pgdir_entry;
+	if ( !(*pgdir_entry & PTE_P) ) {
+		cprintf("Page directory entry %d is not present \n", pgdir_index);
+		return 0;
+	}
+	if (pgtab_index >= 0) {
+		pgtab = PTE_ADDR(*pgdir_entry);
+		pgtab_entry = &((pte_t *)KADDR(pgtab))[pgtab_index];
+		if ( !(*pgtab_entry & PTE_P) ) {
+			cprintf("Page table entry %d is not present \n", pgtab_index);
+			return 0;
+		}
+		entry = &pgtab_entry;
+	}
+
+	if ( !set_permissions ) {
+		cprintf("%3x \n", TABENTRY_FLAGS(**entry));
+	}
+	else {
+		**entry = (**entry & ~ALLOWED_FLAGS) | (new_permissions & ALLOWED_FLAGS);
+
+		if (pgtab_index >= 0) {
+			// any address will invalidate the whole page
+			tlb_invalidate(kern_pgdir, PGADDR(pgdir_index, pgtab_index, 0));
+		}
+		else {
+			// invalidate each page belonging to 'this' directory
+			pgtab = PTE_ADDR(*pgdir_entry);
+			for (pgtab_index = 0; pgtab_index < (1 << (PDXSHIFT - PTXSHIFT)); ++pgtab_index) {
+				pgtab_entry = &((pte_t *)KADDR(pgtab))[pgtab_index];
+				if ( *pgtab_entry & PTE_P ) {
+					tlb_invalidate(kern_pgdir, PGADDR(pgdir_index, pgtab_index, 0));
+				}
+			}
+		}
 	}
 
 	return 0;
