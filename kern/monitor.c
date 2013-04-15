@@ -29,6 +29,7 @@ static struct Command commands[] = {
 	{ "backtrace",		"Display stack backtrace",			mon_backtrace },
 	{ "showmappings",	"Display virtual memory pages mapping",		mon_showmappings },
 	{ "mapping_perms",	"Edit memory mapping permissions",		mon_mapping_perms },
+	{ "memdump",		"Dump virtual or physical memory range",	mon_memdump },
 };
 #define NCOMMANDS (sizeof(commands)/sizeof(commands[0]))
 
@@ -210,6 +211,98 @@ mon_mapping_perms(int argc, char **argv, struct Trapframe *tf)
 					tlb_invalidate(kern_pgdir, PGADDR(pgdir_index, pgtab_index, 0));
 				}
 			}
+		}
+	}
+
+	return 0;
+}
+
+
+
+static int
+address_phys_to_virt(pde_t *pgdir, physaddr_t phys_addr, uintptr_t *virt_addr)
+{
+	int dir_index;
+	int tab_index;
+	pde_t pgdir_entry;
+	pte_t *pgtab;
+	pte_t pgtab_entry;
+
+	for (dir_index = 0; dir_index < NPDENTRIES; ++dir_index) {
+		pgdir_entry = pgdir[dir_index];
+		if (pgdir_entry & PTE_P) {
+			pgtab = (pte_t *)KADDR(PTE_ADDR(pgdir_entry));
+			for (tab_index = 0; tab_index < NPDENTRIES; ++tab_index) {
+				pgtab_entry = pgtab[tab_index];
+				if (pgtab_entry & PTE_P) {
+					if (PTE_ADDR(pgtab_entry) == PTE_ADDR(phys_addr)) {
+						/* found - build virtual address */
+						*virt_addr = (uintptr_t)PGADDR(dir_index, tab_index, PGOFF(phys_addr));
+						return 1;
+					}
+				}
+			}
+		}
+	}
+
+	/* not found */
+	return 0;
+}
+
+int
+mon_memdump(int argc, char **argv, struct Trapframe *tf)
+{
+	int read_phys_mem;
+	uint32_t start, stop;
+	uintptr_t virt_addr = 0;
+	int is_mapped = 0;
+	uint32_t page_num;
+
+	if (argc >= 3) {
+		if ( !strncmp(argv[1], "/p", 2) )
+			read_phys_mem = 1;
+		else if ( !strncmp(argv[1], "/v", 2) )
+			read_phys_mem = 0;
+		else
+			goto print_usage;
+
+		start = strtol(argv[2], NULL, 0);
+		if (argc >= 4)
+			stop = strtol(argv[3], NULL, 0);
+		else
+			stop = start;
+	}
+	else {
+print_usage:
+		cprintf("%s /v start-addr [stop-addr]  -  virtual memory dump \n", argv[0]);
+		cprintf("%s /p start-addr [stop-addr]  -  physical memory dump \n", argv[0]);
+		return 0;
+	}
+
+	page_num = (uint32_t)-1;
+	for (; start <= stop; ++start) {
+		if (page_num != PGNUM(start)) {
+			/* 1-st iteration or new page */
+			if ( read_phys_mem ) {
+				is_mapped = address_phys_to_virt(kern_pgdir, start, &virt_addr);
+			}
+			else {
+				virt_addr = start;
+				is_mapped = (page_lookup(kern_pgdir, (void *)start, NULL) != NULL);
+			}
+
+			page_num = PGNUM(start);
+		}
+		else {
+			/* old page - only page offset changes */
+			virt_addr = (virt_addr & ~PGOFF(-1)) | PGOFF(start);
+		}
+
+		if ( is_mapped ) {
+			cprintf("0x%08x: %02x \n", start, *(unsigned char *)virt_addr);
+		}
+		else {
+			cprintf("0x%08x: UNMAPPED \n", start);
 		}
 	}
 
