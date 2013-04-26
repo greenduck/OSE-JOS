@@ -479,11 +479,11 @@ page_lookup(pde_t *pgdir, void *va, pte_t **pte_store)
 	pte_t *pgtab_entry;
 
 	pgtab_entry = pgdir_walk(pgdir, va, 0);
-	if ((pgtab_entry == NULL) || !(*pgtab_entry & PTE_P))
-		return NULL;
-
 	if (pte_store != NULL)
 		*pte_store = pgtab_entry;
+
+	if ((pgtab_entry == NULL) || !(*pgtab_entry & PTE_P))
+		return NULL;
 
 	return pa2page(PTE_ADDR(*pgtab_entry));
 }
@@ -569,6 +569,64 @@ user_mem_assert(struct Env *env, const void *va, size_t len, int perm)
 		env_destroy(env);	// may not return
 	}
 }
+
+
+
+static char *
+virt_addr_user_to_kernel(pde_t *pgdir, const char *va)
+{
+	pte_t *pgtab_entry;
+
+	pgtab_entry = pgdir_walk(pgdir, va, 0);
+	if ((pgtab_entry == NULL) || !(*pgtab_entry & PTE_P) || !(*pgtab_entry & PTE_U))
+		return NULL;
+
+	return KADDR(PTE_ADDR(*pgtab_entry)) + PGOFF(va);
+}
+
+/**
+ * Copy memory area to destination address located in a
+ * particular user address space.
+ * @param pgdir: destination page directory
+ * @param dest_va: destination virtual address
+ * @param src_va: source virtual address (in currently active
+ *      	address space)
+ * @param len: number of data bytes to copy
+ * @return number of bytes that are still left to be copied
+ * @attention in case src_va == NULL, the function acts like memset():
+ * memset(dest_va, 0, len)
+ */
+int
+copy_to_user_addr(pde_t *pgdir, void *dest_va, const void *src_va, size_t len)
+{
+	char *ka_start;
+	char *ka_stop;
+	uint32_t i;
+	uint32_t n;
+
+	i = 0;
+	while (i < len) {
+		ka_start = virt_addr_user_to_kernel(pgdir, (dest_va + i));
+		if (ka_start == NULL)
+			return (len - i);
+
+		ka_stop = ROUNDDOWN((ka_start + PGSIZE), PGSIZE);
+		n = (uint32_t)(ka_stop - ka_start);
+		if (n > (len - i))
+			n = (len - i);
+
+		if (src_va != NULL) {
+			memmove(ka_start, (src_va + i), n);
+		}
+		else {
+			memset(ka_start, 0, n);
+		}
+		i += n;
+	}
+
+	return 0;
+}
+
 
 
 // --------------------------------------------------------------
