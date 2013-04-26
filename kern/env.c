@@ -365,17 +365,6 @@ load_icode(struct Env *e, uint8_t *binary, size_t size)
 	ph_start = (struct Proghdr *)((uint8_t *)elf + elf->e_phoff);
 	ph_end = ph_start + elf->e_phnum;
 	for (ph = ph_start; ph < ph_end; ++ph) {
-		{
-			cprintf("p_type: %x \n", ph->p_type);
-			cprintf("p_offset: %x \n", ph->p_offset);
-			cprintf("p_va: %x \n", ph->p_va);
-			cprintf("p_pa: %x \n", ph->p_pa);
-			cprintf("p_filesz: %x \n", ph->p_filesz);
-			cprintf("p_memsz: %x \n", ph->p_memsz);
-			cprintf("p_flags: %x \n", ph->p_flags);
-			cprintf("p_align: %x \n", ph->p_align);
-			cprintf("------------------------ \n");
-		}
 
 		if (ph->p_type != ELF_PROG_LOAD)
 			continue;
@@ -397,22 +386,6 @@ load_icode(struct Env *e, uint8_t *binary, size_t size)
 			errline = __LINE__;
 			goto out_fail;
 		}
-
-		{
-			cprintf("%s: \n", __FUNCTION__);
-			cprintf("%08x: %02x %02x %02x %02x \n",
-				ph->p_va,
-				*(binary + ph->p_offset + 0),
-				*(binary + ph->p_offset + 1),
-				*(binary + ph->p_offset + 2),
-				*(binary + ph->p_offset + 3));
-			cprintf("%08x: %02x %02x %02x %02x \n",
-				(ph->p_va + 4),
-				*(binary + ph->p_offset + 4),
-				*(binary + ph->p_offset + 5),
-				*(binary + ph->p_offset + 6),
-				*(binary + ph->p_offset + 7));
-		}
 	}
 
 	// Now map one page for the program's initial stack
@@ -421,18 +394,6 @@ load_icode(struct Env *e, uint8_t *binary, size_t size)
 
 	// setup program's entry point
 	e->env_tf.tf_eip = elf->e_entry;
-
-	{
-		lcr3(PADDR(e->env_pgdir));
-		cprintf("... \n");
-		cprintf("%08x: %02x %02x %02x %02x \n",
-			elf->e_entry,
-			*(uint8_t *)(elf->e_entry + 0),
-			*(uint8_t *)(elf->e_entry + 1),
-			*(uint8_t *)(elf->e_entry + 2),
-			*(uint8_t *)(elf->e_entry + 3));
-		lcr3(PADDR(kern_pgdir));
-	}
 	return;
 
 out_fail:
@@ -591,17 +552,6 @@ env_run(struct Env *e)
 	++curenv->env_runs;
 
 	lcr3(PADDR(e->env_pgdir));
-
-	// debug
-	{
-		cprintf("%s: \n", __FUNCTION__);
-		cprintf("%08x: %02x %02x %02x %02x \n",
-			e->env_tf.tf_eip,
-			*(uint8_t *)(e->env_tf.tf_eip + 0),
-			*(uint8_t *)(e->env_tf.tf_eip + 1),
-			*(uint8_t *)(e->env_tf.tf_eip + 2),
-			*(uint8_t *)(e->env_tf.tf_eip + 3));
-	}
 
 	// 2.
 	env_pop_tf(&e->env_tf);
