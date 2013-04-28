@@ -62,9 +62,17 @@ static const char *trapname(int trapno)
 void
 trap_init(void)
 {
-	extern struct Segdesc gdt[];
+	extern uint32_t vectors[];	// trapentry.S
+	int i;
 
-	// LAB 3: Your code here.
+	for (i = 0; i < 32/*256*/; ++i) {
+		if (i == T_SYSCALL) {
+			SETGATE(idt[i], 1, GD_KT, vectors[i], 3);
+		}
+		else {
+			SETGATE(idt[i], 0, GD_KT, vectors[i], 0);
+		}
+	}
 
 	// Per-CPU setup 
 	trap_init_percpu();
