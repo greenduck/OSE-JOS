@@ -65,7 +65,14 @@ trap_init(void)
 	extern uint32_t vectors[];	// trapentry.S
 	int i;
 
-	for (i = 0; i < 32/*256*/; ++i) {
+	for (i = 0; i < 256; ++i) {
+		/* 
+		 * This is merely a patch to eliminate the initialization 
+		 * of not yet supported trap entries. 
+		 */
+		if ( !(((i >= 0) && (i < 32)) || (i == 48)) )
+			continue;
+
 		if ((i == T_BRKPT)
 		    || (i == T_SYSCALL)) {
 			SETGATE(idt[i], 1, GD_KT, vectors[i], 3);
@@ -162,7 +169,15 @@ trap_dispatch(struct Trapframe *tf)
 		/* page fault */
 		page_fault_handler(tf);
 		break;
-
+	case T_SYSCALL:
+		/* system call */
+		tf->tf_regs.reg_eax = syscall(tf->tf_regs.reg_eax,
+					      tf->tf_regs.reg_edx,
+					      tf->tf_regs.reg_ecx,
+					      tf->tf_regs.reg_ebx,
+					      tf->tf_regs.reg_edi,
+					      tf->tf_regs.reg_esi);
+		break;
 	default:
 		/* The user process or the kernel might have a bug */
 		warn("Unhandled trap%s: %u \n", (tf->tf_cs == GD_KT ? " in the kernel" : ""), tf->tf_trapno);
@@ -188,7 +203,7 @@ trap(struct Trapframe *tf)
 	// the interrupt path.
 	assert(!(read_eflags() & FL_IF));
 
-	cprintf("Incoming TRAP frame at %p\n", tf);
+	cprintf("Incoming TRAP frame at %p (number %u) \n", tf, tf->tf_trapno);
 
 	if ((tf->tf_cs & 3) == 3) {
 		// Trapped from user mode.
