@@ -150,7 +150,16 @@ static void
 trap_dispatch(struct Trapframe *tf)
 {
 	// Handle processor exceptions.
-	// LAB 3: Your code here.
+	switch (tf->tf_trapno)
+	{
+	case T_PGFLT:
+		/* page fault */
+		page_fault_handler(tf);
+		break;
+
+	default:
+		warn("Unhandled trap: %u \n", tf->tf_trapno);
+	}
 
 	// Unexpected trap: The user process or the kernel has a bug.
 	print_trapframe(tf);
