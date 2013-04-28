@@ -66,7 +66,8 @@ trap_init(void)
 	int i;
 
 	for (i = 0; i < 32/*256*/; ++i) {
-		if (i == T_SYSCALL) {
+		if ((i == T_BRKPT)
+		    || (i == T_SYSCALL)) {
 			SETGATE(idt[i], 1, GD_KT, vectors[i], 3);
 		}
 		else {
@@ -152,22 +153,26 @@ trap_dispatch(struct Trapframe *tf)
 	// Handle processor exceptions.
 	switch (tf->tf_trapno)
 	{
+	case T_DEBUG:
+	case T_BRKPT:
+		/* breakpoint */
+		monitor(tf);
+		break;
 	case T_PGFLT:
 		/* page fault */
 		page_fault_handler(tf);
 		break;
 
 	default:
-		warn("Unhandled trap: %u \n", tf->tf_trapno);
-	}
-
-	// Unexpected trap: The user process or the kernel has a bug.
-	print_trapframe(tf);
-	if (tf->tf_cs == GD_KT)
-		panic("unhandled trap in kernel");
-	else {
-		env_destroy(curenv);
-		return;
+		/* The user process or the kernel might have a bug */
+		warn("Unhandled trap%s: %u \n", (tf->tf_cs == GD_KT ? " in the kernel" : ""), tf->tf_trapno);
+		print_trapframe(tf);
+		if (tf->tf_cs == GD_KT) {
+			assert(0);
+		}
+		else {
+			env_destroy(curenv);
+		}
 	}
 }
 

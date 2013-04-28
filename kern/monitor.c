@@ -31,6 +31,8 @@ static struct Command commands[] = {
 	{ "showmappings",	"Display virtual memory pages mapping",		mon_showmappings },
 	{ "mapping_perms",	"Edit memory mapping permissions",		mon_mapping_perms },
 	{ "memdump",		"Dump virtual or physical memory range",	mon_memdump },
+	{ "stepi",		"Step one assembly instruction",		mon_stepi },
+	{ "cont",		"Exit kernel monitor enabling non-stop run",	mon_continue },
 };
 #define NCOMMANDS (sizeof(commands)/sizeof(commands[0]))
 
@@ -312,6 +314,40 @@ print_usage:
 
 
 
+int
+mon_stepi(int argc, char **argv, struct Trapframe *tf)
+{
+	if (tf == NULL) {
+		/* back to kernel monitor */
+		cprintf("No process to single-step \n");
+		return 0;
+	}
+
+	/* set single-step mode */
+	tf->tf_eflags |= FL_TF;
+
+	/* continue */
+	return -1;
+}
+
+int
+mon_continue(int argc, char **argv, struct Trapframe *tf)
+{
+	if (tf == NULL) {
+		/* back to kernel monitor */
+		cprintf("No process to continue \n");
+		return 0;
+	}
+
+	/* clear single-step mode */
+	tf->tf_eflags &= ~FL_TF;
+
+	/* continue */
+	return -1;
+}
+
+
+
 /***** Kernel monitor command interpreter *****/
 
 #define WHITESPACE "\t\r\n "
@@ -361,11 +397,18 @@ monitor(struct Trapframe *tf)
 {
 	char *buf;
 
-	cprintf("Welcome to the JOS kernel monitor!\n");
-	cprintf("Type 'help' for a list of commands.\n");
-
-	if (tf != NULL)
-		print_trapframe(tf);
+	if ((tf == NULL) || (tf->tf_trapno != T_DEBUG)) {
+		cprintf("Welcome to the JOS kernel monitor!\n");
+		cprintf("Type 'help' for a list of commands.\n");
+	}
+	if (tf != NULL) {
+		if (tf->tf_trapno != T_DEBUG) {
+			print_trapframe(tf);
+		}
+		else {
+			cprintf("  eip  0x%08x\n", tf->tf_eip);
+		}
+	}
 
 	while (1) {
 		buf = readline("K> ");
