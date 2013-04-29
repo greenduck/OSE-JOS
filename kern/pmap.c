@@ -551,25 +551,30 @@ user_mem_check(struct Env *env, const void *va, size_t len, int perm)
 	void *start = (void *)va;
 	void *stop = (void *)va + len;
 	pte_t *pgtab_entry;
+	pde_t *pgdir = env->env_pgdir;
 
 	for (; start < stop; start = ROUNDDOWN((start + PGSIZE), PGSIZE)) {
-		user_mem_check_addr = (uintptr_t)start;
-
 		// (1)
 		if ((uintptr_t)start >= ULIM)
-			return -E_FAULT;
+			goto out_fail;
 
 		// (2)
-		if (page_lookup(env->env_pgdir, start, &pgtab_entry) == NULL)
-			return -E_FAULT;
+		if (page_lookup(pgdir, start, &pgtab_entry) == NULL)
+			goto out_fail;
 
 		perm |= PTE_P;
 		if ((*pgtab_entry & perm) != perm)
-			return -E_FAULT;
+			goto out_fail;
 	}
 
+	// cprintf("%s: +++++ 0x%08x \n", __FUNCTION__, (uintptr_t)va);
 	user_mem_check_addr = 0;
 	return 0;
+
+out_fail:
+	// cprintf("%s: ----- 0x%08x \n", __FUNCTION__, (uintptr_t)start);
+	user_mem_check_addr = (uintptr_t)start;
+	return -E_FAULT;
 }
 
 //
