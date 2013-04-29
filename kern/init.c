@@ -60,6 +60,9 @@ i386_init(void)
 #else
 	// Touch all you want.
 	ENV_CREATE(user_primes, ENV_TYPE_USER);
+	// ENV_CREATE(user_hello, ENV_TYPE_USER);
+	// ENV_CREATE(user_softint, ENV_TYPE_USER);
+	// ENV_CREATE(user_breakpoint, ENV_TYPE_USER);
 #endif // TEST*
 
 	// Schedule and run the first user environment!

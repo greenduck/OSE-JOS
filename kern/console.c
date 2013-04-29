@@ -192,7 +192,7 @@ cga_putc(int c)
 		break;
 	}
 
-	// What is the purpose of this?
+	/* scroll one line when at the bottom of the screen */
 	if (crt_pos >= CRT_SIZE) {
 		int i;
 

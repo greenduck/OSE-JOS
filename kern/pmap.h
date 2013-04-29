@@ -90,4 +90,7 @@ page2kva(struct PageInfo *pp)
 
 pte_t *pgdir_walk(pde_t *pgdir, const void *va, int create);
 
+int copy_to_user_addr(pde_t *pgdir, void *dest_va, const void *src_va, size_t len);
+
+
 #endif /* !JOS_KERN_PMAP_H */
