@@ -276,14 +276,6 @@ mem_init_mp(void)
 void
 page_init(void)
 {
-	// LAB 4:
-	// Change your code to mark the physical page at MPENTRY_PADDR
-	// as in use
-
-	// Change the code to reflect this.
-	// NB: DO NOT actually touch the physical memory corresponding to
-	// free pages!
-
 	/*
 	 * Mark all physical pages as free, except those that are not:
 	 * 1) Mark physical page 0 as in use.
@@ -297,15 +289,17 @@ page_init(void)
 	 *    Some of it is in use, some is free. Where is the kernel
 	 *    in physical memory?  Which pages are already in use for
 	 *    page tables and other data structures?
+	 * 5) Mark the physical page at MPENTRY_PADDR as in use
 	 */
 	size_t i;
 
 	page_free_list = NULL;
 	for (i = 0; i < npages; i++) {
 		if ( (i == 0) ||
-		     ((PGADDR(0, i, 0) >= (void *)IOPHYSMEM) && (PGADDR(0, i, 0) < (void *)PADDR(boot_alloc(0)))) ) {
+		     ((PGADDR(0, i, 0) >= (void *)IOPHYSMEM) && (PGADDR(0, i, 0) < (void *)PADDR(boot_alloc(0)))) ||
+		     (PGADDR(0, i, 0) == (void *)MPENTRY_PADDR) ) {
 			// pages in use
-			// (1), (3), (4)
+			// (1), (3), (4), (5)
 			pages[i].pp_ref = 0;
 			pages[i].pp_link = NULL;
 		}
@@ -569,13 +563,15 @@ tlb_invalidate(pde_t *pgdir, void *va)
 // have to be multiple of PGSIZE.
 //
 void *
-mmio_map_region(physaddr_t pa, size_t size)
+mmio_map_region(physaddr_t pa, size_t _size)
 {
 	// Where to start the next region.  Initially, this is the
 	// beginning of the MMIO region.  Because this is static, its
 	// value will be preserved between calls to mmio_map_region
 	// (just like nextfree in boot_alloc).
 	static uintptr_t base = MMIOBASE;
+	size_t size = ROUNDUP(_size, PGSIZE);
+	void *mmio_addr;
 
 	// Reserve size bytes of virtual memory starting at base and
 	// map physical pages [pa,pa+size) to virtual addresses
@@ -591,11 +587,12 @@ mmio_map_region(physaddr_t pa, size_t size)
 	// Be sure to round size up to a multiple of PGSIZE and to
 	// handle if this reservation would overflow MMIOLIM (it's
 	// okay to simply panic if this happens).
-	//
-	// Hint: The staff solution uses boot_map_region.
-	//
-	// Your code here:
-	panic("mmio_map_region not implemented");
+
+	panic_if(((base + size) > MMIOLIM), "memmory mapped IO region overflows MMIOLIMIT \n");
+	boot_map_region(kern_pgdir, base, size, pa, (PTE_PCD | PTE_PWT | PTE_W));
+	mmio_addr = (void *)base;
+	base += size;
+	return mmio_addr;
 }
 
 static uintptr_t user_mem_check_addr;
