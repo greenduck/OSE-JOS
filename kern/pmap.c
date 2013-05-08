@@ -257,8 +257,15 @@ mem_init_mp(void)
 	//             Known as a "guard page".
 	//     Permissions: kernel RW, user NONE
 	//
-	// LAB 4: Your code here:
 
+	int i;
+	uintptr_t stackbottom;
+
+	stackbottom = (KSTACKTOP - KSTKSIZE);
+	for (i = 0; i < NCPU; ++i) {
+		boot_map_region(kern_pgdir, stackbottom, KSTKSIZE, PADDR(percpu_kstacks[i]), PTE_W);
+		stackbottom -= (KSTKSIZE + KSTKGAP);
+	}
 }
 
 // --------------------------------------------------------------
@@ -440,11 +447,8 @@ boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm
 
 	while (size != 0) {
 		pgtab_entry = pgdir_walk(pgdir, (void *)va, 1);
-		if (pgtab_entry == NULL)
-			panic("could not allocate page for page table");
-
-		if (*pgtab_entry & PTE_P)
-			panic("virtual address is already mapped");
+		panic_if((pgtab_entry == NULL), "could not allocate page for page table");
+		// panic_if((*pgtab_entry & PTE_P), "[0x%08x -> %08x] virtual address is already mapped to %08x", va, pa, PTE_ADDR(*pgtab_entry));
 
 		*pgtab_entry = PTE_ADDR(pa) | perm | PTE_P;
 
@@ -896,16 +900,16 @@ check_kern_pgdir(void)
 	for (i = 0; i < npages * PGSIZE; i += PGSIZE)
 		assert(check_va2pa(pgdir, KERNBASE + i) == i);
 
-//	// check kernel stack
-//	// (updated in lab 4 to check per-CPU kernel stacks)
-//	for (n = 0; n < NCPU; n++) {
-//		uint32_t base = KSTACKTOP - (KSTKSIZE + KSTKGAP) * (n + 1);
-//		for (i = 0; i < KSTKSIZE; i += PGSIZE)
-//			assert(check_va2pa(pgdir, base + KSTKGAP + i)
-//				== PADDR(percpu_kstacks[n]) + i);
-//		for (i = 0; i < KSTKGAP; i += PGSIZE)
-//			assert(check_va2pa(pgdir, base + i) == ~0);
-//	}
+	// check kernel stack
+	// (updated in lab 4 to check per-CPU kernel stacks)
+	for (n = 0; n < NCPU; n++) {
+		uint32_t base = KSTACKTOP - (KSTKSIZE + KSTKGAP) * (n + 1);
+		for (i = 0; i < KSTKSIZE; i += PGSIZE)
+			assert(check_va2pa(pgdir, base + KSTKGAP + i)
+				== PADDR(percpu_kstacks[n]) + i);
+		for (i = 0; i < KSTKGAP; i += PGSIZE)
+			assert(check_va2pa(pgdir, base + i) == ~0);
+	}
 
 	// check PDE permissions
 	for (i = 0; i < NPDENTRIES; i++) {
