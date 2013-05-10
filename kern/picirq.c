@@ -4,6 +4,7 @@
 #include <inc/trap.h>
 
 #include <kern/picirq.h>
+#include <kern/cpu.h>
 
 
 // Current IRQ mask.
@@ -77,7 +78,7 @@ irq_setmask_8259A(uint16_t mask)
 		return;
 	outb(IO_PIC1+1, (char)mask);
 	outb(IO_PIC2+1, (char)(mask >> 8));
-	cprintf("enabled interrupts:");
+	cprintf("CPU[%d]: enabled interrupts:", cpunum());
 	for (i = 0; i < 16; i++)
 		if (~mask & (1<<i))
 			cprintf(" %d", i);

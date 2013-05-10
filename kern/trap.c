@@ -207,12 +207,13 @@ trap_dispatch(struct Trapframe *tf)
 					      tf->tf_regs.reg_edi,
 					      tf->tf_regs.reg_esi);
 		break;
+	case (IRQ_OFFSET + 0):
 	case (IRQ_OFFSET + IRQ_SPURIOUS):
 		/* 
 		 * The hardware sometimes raises spurious interrupt because of noise on the
 		 * IRQ line or other reasons. We don't care.
 		 */
-		cprintf("Spurious interrupt on irq 7 \n");
+		cprintf("Spurious interrupt on irq %d \n", (tf->tf_trapno - IRQ_OFFSET));
 		print_trapframe(tf);
 		break;
 	default:

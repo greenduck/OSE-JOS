@@ -7,6 +7,17 @@
 
 void sched_halt(void);
 
+static void
+try_to_run(struct Env *env)
+{
+	if ((env->env_status == ENV_RUNNABLE) ||
+	    ((env->env_status == ENV_RUNNING) && (env->env_cpunum == cpunum()))) {
+
+		// cprintf("cpu[%d]: schedule process ID %d (%d) \n", cpunum(), env->env_id, ENVX(env->env_id));
+		env_run(env);
+	}
+}
+
 // Choose a user environment to run and run it.
 void
 sched_yield(void)
@@ -28,14 +39,18 @@ sched_yield(void)
 	// no runnable environments, simply drop through to the code
 	// below to halt the cpu.
 
-	// LAB 4: Your code here.
-	if (envs[0].env_status == ENV_RUNNABLE) {
-		env_run(&envs[0]);
-	}
-	else {
-		panic("Environment 0 should really be runnable ! \n");
+	int cur_index = (curenv == NULL) ? -1 : ENVX(curenv->env_id);
+	int i = cur_index + 1;
+
+	for (; i < NENV; ++i) {
+		try_to_run(&envs[i]);
 	}
 
+	for (i = 0; i <= cur_index; ++i) {
+		try_to_run(&envs[i]);
+	}
+
+	cprintf("cpu[%d]: break scheduling loop \n", cpunum());
 	// sched_halt never returns
 	sched_halt();
 }
