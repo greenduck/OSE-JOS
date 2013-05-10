@@ -260,6 +260,7 @@ mon_memdump(int argc, char **argv, struct Trapframe *tf)
 	uintptr_t virt_addr = 0;
 	int is_mapped = 0;
 	uint32_t page_num;
+	char aux_column[32];
 
 	if (argc >= 3) {
 		if ( !strncmp(argv[1], "/p", 2) )
@@ -301,11 +302,18 @@ print_usage:
 			virt_addr = (virt_addr & ~PGOFF(-1)) | PGOFF(start);
 		}
 
-		if ( is_mapped ) {
-			cprintf("0x%08x: %02x \n", start, *(unsigned char *)virt_addr);
+		if ( read_phys_mem ) {
+			snprintf(aux_column, sizeof(aux_column), " [%08x]", virt_addr);
 		}
 		else {
-			cprintf("0x%08x: UNMAPPED \n", start);
+			aux_column[0] = '\0';
+		}
+
+		if ( is_mapped ) {
+			cprintf("0x%08x%s: %02x \n", start, aux_column, *(unsigned char *)virt_addr);
+		}
+		else {
+			cprintf("0x%08x%s: UNMAPPED \n", start, aux_column);
 		}
 	}
 
