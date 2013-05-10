@@ -14,8 +14,6 @@
 #include <kern/cpu.h>
 #include <kern/spinlock.h>
 
-static struct Taskstate ts;
-
 /* For debugging, so print_trapframe can distinguish between printing
  * a saved trapframe and printing the current trapframe and print some
  * additional information in the latter case.
@@ -110,24 +108,27 @@ trap_init_percpu(void)
 	// get a triple fault.  If you set up an individual CPU's TSS
 	// wrong, you may not get a fault until you try to return from
 	// user space on that CPU.
-	//
-	// LAB 4: Your code here:
 
 	// Setup a TSS so that we get the right stack
 	// when we trap to the kernel.
-	ts.ts_esp0 = KSTACKTOP;
-	ts.ts_ss0 = GD_KD;
+	int cpu = cpunum();
+	struct Taskstate *ts = &thiscpu->cpu_ts;
+	uintptr_t stacktop = KSTACKTOP - (KSTKSIZE + KSTKGAP) * cpu;
 
-	// Initialize the TSS slot of the gdt.
-	gdt[GD_TSS0 >> 3] = SEG16(STS_T32A, (uint32_t) (&ts),
-					sizeof(struct Taskstate), 0);
-	gdt[GD_TSS0 >> 3].sd_s = 0;
+	ts->ts_esp0 = stacktop;
+	ts->ts_ss0 = GD_KD;
 
-	// Load the TSS selector (like other segment selectors, the
-	// bottom three bits are special; we leave them 0)
-	ltr(GD_TSS0);
+	// init. the TSS slot of the GDT
+	gdt[(GD_TSS0 >> 3) + cpu] = SEG16(STS_T32A, (uint32_t)ts,
+					  sizeof(struct Taskstate), 0);
+	gdt[(GD_TSS0 >> 3) + cpu].sd_s = 0;
 
-	// Load the IDT
+	// load TSS selector
+	// NOTE:
+	// in segment selectors, the bottom 3 bits should be left 0
+	ltr(GD_TSS0 + (cpu << 3));
+
+	// load IDT
 	lidt(&idt_pd);
 }
 
