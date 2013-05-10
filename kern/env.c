@@ -579,9 +579,11 @@ env_run(struct Env *e)
 
 	lcr3(PADDR(e->env_pgdir));
 
+	unlock_kernel();
+
 	// 2.
 	env_pop_tf(&e->env_tf);
 
-	panic("[%s:%d] this line should never be reached \n", __FUNCTION__, __LINE__);
+	panic("should not have returned from env_pop_tf() \n");
 }
 
