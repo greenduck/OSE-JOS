@@ -73,13 +73,6 @@ trap_init(void)
 	int i;
 
 	for (i = 0; i < 256; ++i) {
-		/* 
-		 * This is merely a patch to eliminate the initialization 
-		 * of not yet supported trap entries. 
-		 */
-		if ( !(((i >= 0) && (i < 32)) || (i == 48)) )
-			continue;
-
 		if ((i == T_BRKPT)
 		    || (i == T_SYSCALL)) {
 			SETGATE(idt[i], 1, GD_KT, vectors[i], 3);
