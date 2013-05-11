@@ -29,6 +29,12 @@ sched_yield(void)
 	// below to halt the cpu.
 
 	// LAB 4: Your code here.
+	if (envs[0].env_status == ENV_RUNNABLE) {
+		env_run(&envs[0]);
+	}
+	else {
+		panic("Environment 0 should really be runnable ! \n");
+	}
 
 	// sched_halt never returns
 	sched_halt();
