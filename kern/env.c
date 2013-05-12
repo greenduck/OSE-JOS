@@ -191,7 +191,7 @@ env_setup_vm(struct Env *e)
 	++p->pp_ref;
 	e->env_pgdir = (pde_t *)page2kva(p);
 	// map memory above UTOP identically to kernel mapping
-	for (i = PDX(UTOP); i < npages; ++i) {
+	for (i = PDX(UTOP); i < NPDENTRIES; ++i) {
 		e->env_pgdir[i] = kern_pgdir[i];
 	}
 
