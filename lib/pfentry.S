@@ -64,19 +64,55 @@ _pgfault_upcall:
 	// may find that you have to rearrange your code in non-obvious
 	// ways as registers become unavailable as scratch space.
 	//
-	// LAB 4: Your code here.
+	/* The following code depends on the current layout of 'struct UTrapframe'
+	 * and 'struct PushRegs'.
+	 * What we have in the stack is:
+	 * 48:	utf_esp
+	 * 44:	utf_eflags
+	 * 40:	utf_eip
+	 * 36:	- eax
+	 * 32:	- ecx
+	 * 28:	- edx
+	 * 24:	- ebx
+	 * 20:	- oesp
+	 * 16:	- ebp
+	 * 12:	- esi
+	 * 8:	- edi
+	 * 4:	utf_err
+	 * 0:	utf_fault_va
+	 */
+
+	// save exception stack ESP
+	movl	%esp, %eax
+	// push return address to trap-time stack
+	movl	40(%esp), %ebx
+	movl	48(%esp), %esp
+	pushl	%ebx
+	movl	%esp, 48(%eax)
+	// restore ESP
+	movl	%eax, %esp
 
 	// Restore the trap-time registers.  After you do this, you
 	// can no longer modify any general-purpose registers.
-	// LAB 4: Your code here.
+
+	// skip 'utf_fault_va'
+	// skip 'utf_err'
+	addl	$8, %esp
+	popal
 
 	// Restore eflags from the stack.  After you do this, you can
 	// no longer use arithmetic operations or anything else that
 	// modifies eflags.
-	// LAB 4: Your code here.
+
+	// skip 'utf_eip'
+	addl	$4, %esp
+	popfl
 
 	// Switch back to the adjusted trap-time stack.
-	// LAB 4: Your code here.
+
+	pop	%esp
 
 	// Return to re-execute the instruction that faulted.
-	// LAB 4: Your code here.
+
+	ret
+

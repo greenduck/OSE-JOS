@@ -293,14 +293,17 @@ void
 page_fault_handler(struct Trapframe *tf)
 {
 	uint32_t fault_va;
+	uint32_t xstacktop;
+	struct UTrapframe *utf;
 
 	// Read processor's CR2 register to find the faulting address
 	fault_va = rcr2();
 
-	print_trapframe(tf);
-
 	// Handle kernel-mode page fault
-	panic_if((tf->tf_cs == GD_KT), "cannot handle kernel page fault va %08x ip %08x \n", fault_va, tf->tf_eip);
+	if (tf->tf_cs == GD_KT) {
+		print_trapframe(tf);
+		panic("cannot handle kernel page fault va %08x ip %08x \n", fault_va, tf->tf_eip);
+	}
 
 	// Handle user-mode page fault
 
@@ -332,9 +335,40 @@ page_fault_handler(struct Trapframe *tf)
 	//   To change what the user environment runs, modify 'curenv->env_tf'
 	//   (the 'tf' variable points at 'curenv->env_tf').
 
-	// LAB 4: Your code here.
+	if (curenv->env_pgfault_upcall &&
+	    ((tf->tf_esp < USTACKTOP) || ((tf->tf_esp >= (UXSTACKTOP - PGSIZE)) && (tf->tf_esp < UXSTACKTOP)))) {
+		if ((tf->tf_esp >= (UXSTACKTOP - PGSIZE)) && (tf->tf_esp < UXSTACKTOP)) {
+			/* 
+			 * start a new stack frame recursively,
+			 * pushing empty 32-bit word
+			 */
+			xstacktop = tf->tf_esp - 4;
+		}
+		else {
+			xstacktop = UXSTACKTOP;
+
+			/* check permissions upon 1-st pass */
+			user_mem_assert(curenv, (void *)(UXSTACKTOP - PGSIZE), PGSIZE, (PTE_W | PTE_U));
+		}
+		xstacktop -= sizeof(struct UTrapframe);
+
+		/* set up page fault stack frame */
+		utf = (struct UTrapframe *)xstacktop;
+		utf->utf_fault_va = fault_va;
+		utf->utf_err = tf->tf_err;
+		utf->utf_regs = tf->tf_regs;
+		utf->utf_eip = tf->tf_eip;
+		utf->utf_eflags = tf->tf_eflags;
+		utf->utf_esp = tf->tf_esp;
+
+		tf->tf_esp = xstacktop;
+		tf->tf_eip = (uintptr_t)curenv->env_pgfault_upcall;
+		env_run(curenv);
+		/* never returns */
+	}
 
 	// Destroy the environment that caused the fault
+	print_trapframe(tf);
 	cprintf("[%08x] user fault va %08x ip %08x\n", curenv->env_id, fault_va, tf->tf_eip);
 	env_destroy(curenv);
 }
