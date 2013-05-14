@@ -183,10 +183,6 @@ trap_dispatch(struct Trapframe *tf)
 {
 	// Handle processor exceptions.
 
-	// Handle clock interrupts. Don't forget to acknowledge the
-	// interrupt using lapic_eoi() before calling the scheduler!
-	// LAB 4: Your code here.
-
 	switch (tf->tf_trapno)
 	{
 	case T_DEBUG:
@@ -207,8 +203,26 @@ trap_dispatch(struct Trapframe *tf)
 					      tf->tf_regs.reg_edi,
 					      tf->tf_regs.reg_esi);
 		break;
-	case (IRQ_OFFSET + 0):
+	case (IRQ_OFFSET + IRQ_TIMER):
+		/* acknowledge the interrupt using lapic_eoi() */
+		lapic_eoi();
+		sched_yield();
+		break;
+	case (IRQ_OFFSET + 1):
+	case (IRQ_OFFSET + 2):
+	case (IRQ_OFFSET + 3):
+	case (IRQ_OFFSET + 4):
+	case (IRQ_OFFSET + 5):
+	case (IRQ_OFFSET + 6):
 	case (IRQ_OFFSET + IRQ_SPURIOUS):
+	case (IRQ_OFFSET + 8):
+	case (IRQ_OFFSET + 9):
+	case (IRQ_OFFSET + 10):
+	case (IRQ_OFFSET + 11):
+	case (IRQ_OFFSET + 12):
+	case (IRQ_OFFSET + 13):
+	case (IRQ_OFFSET + 14):
+	case (IRQ_OFFSET + 15):
 		/* 
 		 * The hardware sometimes raises spurious interrupt because of noise on the
 		 * IRQ line or other reasons. We don't care.
