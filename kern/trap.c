@@ -68,16 +68,31 @@ void
 trap_init(void)
 {
 	extern uint32_t vectors[];	// trapentry.S
+	int is_trap;
+	int dpl;
 	int i;
 
 	for (i = 0; i < 256; ++i) {
-		if ((i == T_BRKPT)
-		    || (i == T_SYSCALL)) {
-			SETGATE(idt[i], 1, GD_KT, vectors[i], 3);
+		/* 
+		 * default settings: 
+		 * is_trap - 0: disable IF in interrupt context 
+		 * dpl - 0/3 
+		 */
+		is_trap = 0;
+		dpl = 0;
+
+		/* 
+		 * override default settings
+		 */
+		switch (i)
+		{
+		case T_BRKPT:
+		case T_SYSCALL:
+			is_trap = 0;
+			dpl = 3;
 		}
-		else {
-			SETGATE(idt[i], 0, GD_KT, vectors[i], 0);
-		}
+
+		SETGATE(idt[i], is_trap, GD_KT, vectors[i], dpl);
 	}
 
 	// Per-CPU setup 
@@ -362,7 +377,8 @@ page_fault_handler(struct Trapframe *tf)
 			xstacktop = UXSTACKTOP;
 
 			/* check permissions upon 1-st pass */
-			user_mem_assert(curenv, (void *)(UXSTACKTOP - PGSIZE), PGSIZE, (PTE_W | PTE_U));
+			user_mem_assert(curenv, (void *)(UXSTACKTOP - 1), 1, (PTE_W | PTE_U));
+			user_mem_assert(curenv, curenv->env_pgfault_upcall, 1, PTE_U);
 		}
 		xstacktop -= sizeof(struct UTrapframe);
 

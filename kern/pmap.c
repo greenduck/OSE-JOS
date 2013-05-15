@@ -436,7 +436,7 @@ boot_map_region(pde_t *pgdir, uintptr_t va, size_t size, physaddr_t pa, int perm
 	while (size != 0) {
 		pgtab_entry = pgdir_walk(pgdir, (void *)va, 1);
 		panic_if((pgtab_entry == NULL), "could not allocate page for page table");
-		// panic_if((*pgtab_entry & PTE_P), "[0x%08x -> %08x] virtual address is already mapped to %08x", va, pa, PTE_ADDR(*pgtab_entry));
+		panic_if((*pgtab_entry & PTE_P), "[0x%08x -> %08x] virtual address is already mapped to %08x", va, pa, PTE_ADDR(*pgtab_entry));
 
 		*pgtab_entry = PTE_ADDR(pa) | perm | PTE_P;
 
@@ -481,7 +481,6 @@ page_insert(pde_t *pgdir, struct PageInfo *pp, void *va, int perm)
 
 	if (*pgtab_entry & PTE_P) {
 		page_remove(pgdir, va);
-		tlb_invalidate(pgdir, va);
 	}
 
 	*pgtab_entry = page2pa(pp) | perm | PTE_P;
@@ -531,10 +530,12 @@ page_remove(pde_t *pgdir, void *va)
 	struct PageInfo *pp;
 
 	pp = page_lookup(pgdir, va, &pgtab_entry);
-	*pgtab_entry = 0;
-	tlb_invalidate(pgdir, va);
+	if (pp != NULL) {
+		*pgtab_entry = 0;
+		tlb_invalidate(pgdir, va);
 
-	page_decref(pp);
+		page_decref(pp);
+	}
 }
 
 //
@@ -658,17 +659,7 @@ user_mem_assert(struct Env *env, const void *va, size_t len, int perm)
 
 
 
-static char *
-virt_addr_user_to_kernel(pde_t *pgdir, const char *va)
-{
-	pte_t *pgtab_entry;
-
-	pgtab_entry = pgdir_walk(pgdir, va, 0);
-	if ((pgtab_entry == NULL) || !(*pgtab_entry & PTE_P) || !(*pgtab_entry & PTE_U))
-		return NULL;
-
-	return KADDR(PTE_ADDR(*pgtab_entry)) + PGOFF(va);
-}
+// #define DEBUG_SWITCH_ADDRESS_SPACE
 
 /**
  * Copy memory area to destination address located in a
@@ -682,6 +673,37 @@ virt_addr_user_to_kernel(pde_t *pgdir, const char *va)
  * @attention in case src_va == NULL, the function acts like memset():
  * memset(dest_va, 0, len)
  */
+#ifdef DEBUG_SWITCH_ADDRESS_SPACE
+int
+copy_to_user_addr(pde_t *pgdir, void *dest_va, const void *src_va, size_t len)
+{
+	lcr3(PADDR(pgdir));
+
+	if (src_va != NULL) {
+		memmove(dest_va, src_va, len);
+	}
+	else {
+		memset(dest_va, 0, len);
+	}
+
+	lcr3(PADDR(kern_pgdir));
+	return 0;
+}
+
+#else
+
+static char *
+virt_addr_user_to_kernel(pde_t *pgdir, const char *va)
+{
+	pte_t *pgtab_entry;
+
+	pgtab_entry = pgdir_walk(pgdir, va, 0);
+	if ((pgtab_entry == NULL) || !(*pgtab_entry & PTE_P) || !(*pgtab_entry & PTE_U))
+		return NULL;
+
+	return KADDR(PTE_ADDR(*pgtab_entry)) + PGOFF(va);
+}
+
 int
 copy_to_user_addr(pde_t *pgdir, void *dest_va, const void *src_va, size_t len)
 {
@@ -712,6 +734,7 @@ copy_to_user_addr(pde_t *pgdir, void *dest_va, const void *src_va, size_t len)
 
 	return 0;
 }
+#endif
 
 
 

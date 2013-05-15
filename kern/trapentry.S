@@ -590,31 +590,17 @@ _alltraps:
 	# Build trap frame.
 	pushl %ds
 	pushl %es
-#	pushl %fs
-#	pushl %gs
 	pushal
 
 	# Set up data and per-cpu segments.
-	movw $GD_KD, %ax
+	movl $GD_KD, %eax
 	movw %ax, %ds
 	movw %ax, %es
-#	movw $(SEG_KCPU<<3), %ax
-#	movw %ax, %fs
-#	movw %ax, %gs
 
 	# Call trap(tf), where tf=%esp
 	pushl %esp
 	call trap
-	addl $4, %esp
 
-	# Return falls through to trapret...
-.globl trapret
-trapret:
-	popal
-#	popl %gs
-#	popl %fs
-	popl %es
-	popl %ds
-	addl $0x8, %esp  # trapno and errcode
-	iret
+	# should never get here
+spin:	jmp spin
 

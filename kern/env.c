@@ -282,15 +282,15 @@ env_alloc(struct Env **newenv_store, envid_t parent_id)
 // Panic if any allocation attempt fails.
 //
 static void
-region_alloc(struct Env *e, void *_va, size_t _len)
+region_alloc(struct Env *e, void *_va, size_t len)
 {
 	void *va;
-	size_t len;
+	void *stop;
 	struct PageInfo *p;
 
-	for (va = ROUNDDOWN(_va, PGSIZE), len = ROUNDUP(_len, PGSIZE);
-	      len > 0;
-	      va += PGSIZE, len -= PGSIZE) {
+	for (va = ROUNDDOWN(_va, PGSIZE), stop = ROUNDUP((_va + len), PGSIZE);
+	      va < stop;
+	      va += PGSIZE) {
 
 		if (page_lookup(e->env_pgdir, va, NULL) != NULL) {
 			// page already mapped
