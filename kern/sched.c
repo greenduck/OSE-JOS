@@ -50,8 +50,7 @@ sched_yield(void)
 		try_to_run(&envs[i]);
 	}
 
-	cprintf("cpu[%d]: break scheduling loop \n", cpunum());
-	// sched_halt never returns
+	// sched_halt implements 'idle process' (never returns)
 	sched_halt();
 }
 
