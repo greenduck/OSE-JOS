@@ -85,6 +85,19 @@ duppage(envid_t envid, unsigned pn)
 	return ret;
 }
 
+static int
+share_page(envid_t envid, unsigned pn)
+{
+	pte_t pte = uvpt[pn];
+	void *va = (void *)(pn << PGSHIFT);
+	int perm = pte & PTE_SYSCALL;
+	int ret;
+
+	ret = sys_page_map(0, va, envid, va, perm);
+
+	return ret;
+}
+
 //
 // User-level fork with copy-on-write.
 // Set up our page fault handler appropriately.
@@ -164,10 +177,87 @@ out:
 	return envid;
 }
 
-// Challenge!
+/*
+ * fork a 'thread' 
+ * processes with (mainly) shared memory 
+ * Note: 
+ * sfork() is 100% identical to fork(), 
+ * except a single point in code where it distinguishes 
+ * where to COW and where to share. 
+ * TODO: 
+ * unify fork() and sfork() under clone() function that would accept 'share_or_cow' flag
+ */
 int
 sfork(void)
 {
-	panic("sfork not implemented");
-	return -E_INVAL;
+	envid_t envid;
+	unsigned pdi;
+	unsigned pti;
+	unsigned pn;
+	int err;
+
+	// (1)
+	set_pgfault_handler(pgfault);
+	// (2)
+	envid = sys_exofork();
+	if (envid == 0) {
+		/* child process */
+		/* fix 'thisenv' */
+		thisenv = &envs[ENVX(sys_getenvid())];
+	}
+	else if (envid > 0) {
+		/* parent process */
+		/* complete configuration */
+		// (3)
+		// traverse all mapped pages
+		for (pdi = 0; pdi < PDX(UTOP); ++pdi) {
+			if ( !(uvpd[pdi] & PTE_P) )
+				continue;
+
+			for (pti = 0; pti < NPTENTRIES; ++pti) {
+				pn = PGNUM(PGADDR(pdi, pti, 0));
+				/* 
+				 * skip non-existent pages 
+				 * OR exception stack, which is allocated separately 
+				 */
+				if ( !(uvpt[pn] & PTE_P) || (pn == PGNUM(UXSTACKTOP - PGSIZE)) )
+					continue;
+
+				/* COW stack */
+				if (pn == PGNUM(USTACKTOP - PGSIZE)) {
+					err = duppage(envid, pn);
+					if (err) {
+						envid = (envid_t)err;
+						goto out;
+					}
+
+					continue;
+				}
+
+				/* share memory */
+				err = share_page(envid, pn);
+				if (err) {
+					envid = (envid_t)err;
+					goto out;
+				}
+			}
+		}
+
+		// (4) - set up page fault handling - code identical to set_pgfault_handler()
+		err = sys_page_alloc(envid, (void *)(UXSTACKTOP - PGSIZE), (PTE_W | PTE_U | PTE_P));
+		if ( !err ) {
+			err = sys_env_set_pgfault_upcall(envid, thisenv->env_pgfault_upcall);
+		}
+		if (err != 0) {
+			envid = (envid_t)err;
+			goto out;
+		}
+
+		// (5) - green light
+		sys_env_set_status(envid, ENV_RUNNABLE);
+	}
+
+out:
+	return envid;
 }
+
