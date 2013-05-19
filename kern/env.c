@@ -428,9 +428,6 @@ out_fail:
 void
 env_create(uint8_t *binary, size_t size, enum EnvType type)
 {
-	// If this is the file server (type == ENV_TYPE_FS) give it I/O privileges.
-	// LAB 5: Your code here.
-
 	struct Env *env;
 	envid_t parent_id;
 	int ret;
@@ -440,6 +437,13 @@ env_create(uint8_t *binary, size_t size, enum EnvType type)
 	parent_id = 0;
 	ret = env_alloc(&env, parent_id);
 	panic_if((ret != 0), "could not allocate environment: %e \n", ret);
+
+	// If this is the file server (type == ENV_TYPE_FS) give it I/O privileges
+	// Shouldn't this code reside in env_alloc() ?
+	if (type == ENV_TYPE_FS) {
+		env->env_type = ENV_TYPE_FS;
+		env->env_tf.tf_eflags |= FL_IOPL_3;
+	}
 
 	load_icode(env, binary, size);
 }
