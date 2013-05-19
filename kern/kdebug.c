@@ -103,6 +103,11 @@ stab_binsearch(const struct Stab *stabs, int *region_left, int *region_right,
 }
 
 
+static uintptr_t
+address_delta(uintptr_t a, uintptr_t b)
+{
+	return (a > b) ? (a - b) : (b - a);
+}
 // debuginfo_eip(addr, info)
 //
 //	Fill in the 'info' structure with information about the specified
@@ -116,6 +121,8 @@ debuginfo_eip(uintptr_t addr, struct Eipdebuginfo *info)
 	const struct Stab *stabs, *stab_end;
 	const char *stabstr, *stabstr_end;
 	int lfile, rfile, lfun, rfun, lline, rline;
+	int line;
+	uintptr_t delta;
 
 	// Initialize *info
 	info->eip_file = "<unknown>";
@@ -141,7 +148,8 @@ debuginfo_eip(uintptr_t addr, struct Eipdebuginfo *info)
 
 		// Make sure this memory is valid.
 		// Return -1 if it is not.  Hint: Call user_mem_check.
-		// LAB 3: Your code here.
+		if (user_mem_check(curenv, usd, sizeof(struct UserStabData), PTE_U) != 0)
+			return -1;
 
 		stabs = usd->stabs;
 		stab_end = usd->stab_end;
@@ -149,7 +157,10 @@ debuginfo_eip(uintptr_t addr, struct Eipdebuginfo *info)
 		stabstr_end = usd->stabstr_end;
 
 		// Make sure the STABS and string table memory is valid.
-		// LAB 3: Your code here.
+		if ((user_mem_check(curenv, stabs, (stab_end - stabs), PTE_U) != 0)
+		    || (user_mem_check(curenv, stabstr, (stabstr_end - stabstr), PTE_U) != 0)) {
+			return -1;
+		}
 	}
 
 	// String table validity checks
@@ -198,12 +209,20 @@ debuginfo_eip(uintptr_t addr, struct Eipdebuginfo *info)
 	// Search within [lline, rline] for the line number stab.
 	// If found, set info->eip_line to the right line number.
 	// If not found, return -1.
-	//
-	// Hint:
-	//	There's a particular stabs type used for line numbers.
-	//	Look at the STABS documentation and <inc/stab.h> to find
-	//	which one.
-	// Your code here.
+	// Notice:
+	// As sometimes compiler optimizations make return address
+	// out of calling function scope, we search for closest address instead of
+	// insisting on exact match.
+	// Possibly we'd better widen [lline, rline] range ?
+	info->eip_line = -1;
+	delta = (uintptr_t)-1;
+	for (line = lline; line <= rline; ++line) {
+		if ((stabs[line].n_type == N_SLINE) &&
+		    (address_delta(addr, stabs[line].n_value) < delta)) {
+			delta = address_delta(addr, stabs[line].n_value);
+			info->eip_line = stabs[line].n_desc;
+		}
+	}
 
 
 	// Search backwards from the line number for the relevant filename
