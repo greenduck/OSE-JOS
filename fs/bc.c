@@ -31,9 +31,17 @@ bc_pgfault(struct UTrapframe *utf)
 	// Allocate a page in the disk map region, read the contents
 	// of the block from the disk into that page.
 	// Hint: first round addr to page boundary.
-	//
-	// LAB 5: you code here:
 
+	// generally, it should be rounded to common-divisor(PGSIZE, BLKSIZE) ...
+	void *addr_fixed = ROUNDDOWN(addr, BLKSIZE);
+	r = sys_page_alloc(0, addr_fixed, (PTE_U | PTE_W | PTE_P));
+	panic_if(r, "could not allocate page: %e", r);
+	uint32_t start_sector = ((uint32_t)addr_fixed - DISKMAP) / BLKSIZE * BLKSECTS;
+	r = ide_read(start_sector, addr_fixed, BLKSECTS);
+	panic_if(r, "could not read sector %u from disk drive: %e", r);
+
+	// TODO:
+	// flush cached blocks to disk
 }
 
 
