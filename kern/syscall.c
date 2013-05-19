@@ -144,10 +144,23 @@ out_fail:
 static int
 sys_env_set_trapframe(envid_t envid, struct Trapframe *tf)
 {
-	// LAB 5: Your code here.
-	// Remember to check whether the user has supplied us with a good
-	// address!
-	panic("sys_env_set_trapframe not implemented");
+	struct Env *env;
+	int ret;
+
+	ret = envid2env(envid, &env, true);
+	if (ret != 0)
+		return ret;
+
+	env->env_tf = *tf;
+
+	// make sure that user environments always run at code
+	// protection level 3 (CPL 3) with interrupts enabled
+	env->env_tf.tf_cs |= 3;
+	env->env_tf.tf_eflags |= FL_IF;
+
+	panic_if(((env->env_tf.tf_esp >= USTACKTOP) || (env->env_tf.tf_esp < (USTACKTOP - PGSIZE))), "illegal stack value: 0x%08x", env->env_tf.tf_esp);
+
+	return 0;
 }
 
 // Set the page fault upcall for 'envid' by modifying the corresponding struct
@@ -428,7 +441,7 @@ sys_ipc_try_send(envid_t envid, uint32_t value, void *srcva, unsigned perm)
 			goto out;
 		}
 
-		if (env->env_ipc_dstva < (void *)UTOP) {
+		if (env->env_ipc_dstva >= (void *)UTOP) {
 			ret = -E_NO_MEM;
 			goto out;
 		}
@@ -506,6 +519,8 @@ syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, 
 		return sys_exofork();
 	case SYS_env_set_status:
 		return sys_env_set_status((envid_t)a1, (int)a2);
+	case SYS_env_set_trapframe:
+		return sys_env_set_trapframe((envid_t)a1, (struct Trapframe *)a2);
 	case SYS_env_set_pgfault_upcall:
 		return sys_env_set_pgfault_upcall((envid_t)a1, (void *)a2);
 	case SYS_yield:
