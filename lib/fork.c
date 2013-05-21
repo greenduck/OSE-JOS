@@ -81,7 +81,8 @@ duppage(envid_t envid, unsigned pn)
 	int new_perm;
 	int ret;
 
-	if ((perm & PTE_W) || (perm & PTE_COW)) {
+	panic_if(((perm & PTE_SHARE) && (perm & PTE_COW)), "cannot handle sharing of COW pages");
+	if (!(perm & PTE_SHARE) && ((perm & PTE_W) || (perm & PTE_COW))) {
 		new_perm = (perm & ~PTE_W) | PTE_COW;
 	}
 	else {

@@ -300,7 +300,36 @@ map_segment(envid_t child, uintptr_t va, size_t memsz,
 static int
 copy_shared_pages(envid_t child)
 {
-	// LAB 5: Your code here.
-	return 0;
+	unsigned pdi;
+	unsigned pti;
+	void *va;
+	unsigned pn;
+	int perm;
+	int ret = 0;
+
+	for (pdi = 0; pdi < PDX(UTOP); ++pdi) {
+		if ( !(uvpd[pdi] & PTE_P) )
+			continue;
+
+		for (pti = 0; pti < NPTENTRIES; ++pti) {
+			va = PGADDR(pdi, pti, 0);
+			pn = PGNUM(va);
+			perm = uvpt[pn] & PTE_SYSCALL;
+			/* 
+			 * skip non-existent pages 
+			 * OR exception stack, which is allocated separately 
+			 * OR non-shared pages 
+			 */
+			if ( !(perm & PTE_P) || (pn == PGNUM(UXSTACKTOP - PGSIZE)) || !(perm & PTE_SHARE) )
+				continue;
+
+			/* share */
+			ret = sys_page_map(0, va, child, va, perm);
+			if (ret != 0)
+				break;
+		}
+	}
+
+	return ret;
 }
 
