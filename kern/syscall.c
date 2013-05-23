@@ -12,6 +12,10 @@
 #include <kern/console.h>
 #include <kern/sched.h>
 
+// PTE_COW marks copy-on-write page table entries.
+// It is one of the bits explicitly allocated to user processes (PTE_AVAIL).
+#define PTE_COW		0x800
+
 // Print a string to the system console.
 // The string is exactly 'len' characters long.
 // Destroys the environment on memory errors.
@@ -319,7 +323,7 @@ sys_page_map(envid_t srcenvid, void *srcva,
 	}
 
 	if (!page_alloc_perms_test_ok(perm) ||
-	    (!(*pagetab_entry & PTE_W) && (perm & PTE_W))) {
+	    (!(*pagetab_entry & (PTE_COW | PTE_W)) && (perm & PTE_W))) {
 		ret = -E_INVAL;
 		line = __LINE__;
 		goto out_fail;
