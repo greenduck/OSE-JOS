@@ -28,22 +28,33 @@ pgfault(struct UTrapframe *utf)
 
 	pte_t pte = uvpt[PGNUM(addr)];
 	int perm = pte & PTE_SYSCALL;
+	int new_perm = (perm & ~PTE_COW) | PTE_W;
 	if ( !((err & FEC_WR) && (perm & PTE_COW)) ) {
-		panic("unexpected user page fault at address: 0x%08x", (uintptr_t)addr);
+		panic("[%08x] unexpected user page fault at address: 0x%08x", thisenv->env_id, (uintptr_t)addr);
 	}
 
 	// Allocate a new page, map it at a temporary location (PFTEMP),
 	// copy the data from the old page to the new page, then move the new
 	// page to the old page's address.
 	// Hint:
-	//   You should make three system calls. -- I see only 2.
+	//   You should make three system calls.
 	//   No need to explicitly delete the old page's mapping.
 
-	r = sys_page_alloc(0, temp_addr, (perm | PTE_W));
+	/* 
+	 * after one environment copies-on-write, 
+	 * the other can simply remove the COW bit 
+	 */
+	if (pages[PGNUM(PTE_ADDR(pte))].pp_ref == 1) {
+		r = sys_page_map(0, fixed_addr, 0, fixed_addr, new_perm);
+		panic_if(r, "could not re-map page");
+		return;
+	}
+
+	r = sys_page_alloc(0, temp_addr, new_perm);
 	panic_if(r, "could not allocate page");
 	memcpy(temp_addr, fixed_addr, PGSIZE);
 
-	r = sys_page_map(0, temp_addr, 0, fixed_addr, (perm | PTE_W));
+	r = sys_page_map(0, temp_addr, 0, fixed_addr, new_perm);
 	panic_if(r, "could not map page");
 }
 
