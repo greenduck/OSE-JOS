@@ -39,6 +39,7 @@ struct Dev devfile =
 	.dev_id =	'f',
 	.dev_name =	"file",
 	.dev_read =	devfile_read,
+	.dev_write =	devfile_write,
 	.dev_close =	devfile_flush,
 	.dev_stat =	devfile_stat,
 };
@@ -122,6 +123,26 @@ devfile_read(struct Fd *fd, void *buf, size_t n)
 	assert(r <= n);
 	assert(r <= PGSIZE);
 	memmove(buf, &fsipcbuf, r);
+	return r;
+}
+
+/**
+ * Write up to 'n' bytes to a file at the current position.
+ * @return the number of bytes written (which might happen to be
+ *         less than 'n') or negative error code
+ */
+static ssize_t
+devfile_write(struct Fd *fd, const void *buf, size_t n)
+{
+	// Make an FSREQ_WRITE request to the file system server after
+	// filling fsipcbuf.write with the request arguments.
+	int r;
+
+	fsipcbuf.write.req_fileid = fd->fd_file.id;
+	fsipcbuf.write.req_n = (n > sizeof(fsipcbuf.write.req_buf)) ? sizeof(fsipcbuf.write.req_buf) : n;
+	memcpy(fsipcbuf.write.req_buf, buf, fsipcbuf.write.req_n);
+
+	r = fsipc(FSREQ_WRITE, NULL);
 	return r;
 }
 

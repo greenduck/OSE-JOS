@@ -124,16 +124,28 @@ serve_open(envid_t envid, struct Fsreq_open *req,
 	}
 	fileid = r;
 
-	if (req->req_omode != 0) {
-		if (debug)
-			cprintf("file_open omode 0x%x unsupported", req->req_omode);
-		return -E_INVAL;
+	/* Parse open mode bits */
+	if (req->req_omode & O_CREAT) {
+		r = file_create(path, &f);
+		if (r < 0) {
+			cprintf("could not create file '%s': %e \n", path, r);
+			return r;
+		}
+	}
+	else {
+		r = file_open(path, &f);
+		if (r < 0) {
+			cprintf("could not open file '%s': %e \n", path, r);
+			return r;
+		}
 	}
 
-	if ((r = file_open(path, &f)) < 0) {
-		if (debug)
-			cprintf("file_open failed: %e", r);
-		return r;
+	if (req->req_omode & O_TRUNC) {
+		r = file_set_size(f, 0);
+		if (r < 0) {
+			cprintf("could not set file '%s' size to 0: %e \n", path, r);
+			return r;
+		}
 	}
 
 	// Save the file pointer
@@ -193,6 +205,45 @@ serve_read(envid_t envid, union Fsipc *ipc)
 
 
 
+/** 
+ * Write to file as specified in the IPC message.
+ *  @return the number of bytes written (which might happen to
+ *          be less than required) or negative error code
+ */ 
+int
+serve_write(envid_t envid, union Fsipc *ipc)
+{
+	struct Fsreq_write *req = &ipc->write;
+	struct OpenFile *o;
+	size_t num_bytes;
+	int r;
+
+	if (debug)
+		cprintf("serve_write %08x %08x %08x\n", envid, req->req_fileid, req->req_n);
+
+	// Look up the file id, read the bytes into 'ret', and update
+	// the seek position.  Be careful if req->req_n > PGSIZE
+	// (remember that read is always allowed to return fewer bytes
+	// than requested).  Also, be careful because ipc is a union,
+	// so filling in ret will overwrite req.
+	//
+
+	r = openfile_lookup(envid, req->req_fileid, &o);
+	if (r)
+		return r;
+
+	num_bytes = (req->req_n > PGSIZE) ? PGSIZE : req->req_n;
+
+	r = file_write(o->o_file, req->req_buf, num_bytes, o->o_fd->fd_offset);
+	if (r < 0)
+		return r;
+
+	o->o_fd->fd_offset += r;
+	return r;
+}
+
+
+
 // Stat ipc->stat.req_fileid.  Return the file's struct Stat to the
 // caller in ipc->statRet.
 int
@@ -229,6 +280,7 @@ fshandler handlers[] = {
 	// Open is handled specially because it passes pages
 	/* [FSREQ_OPEN] =	(fshandler)serve_open, */
 	[FSREQ_READ] =		serve_read,
+	[FSREQ_WRITE] =		serve_write,
 	[FSREQ_STAT] =		serve_stat,
 	[FSREQ_FLUSH] =		(fshandler)serve_flush,
 };

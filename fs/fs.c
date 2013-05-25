@@ -211,6 +211,37 @@ file_open(const char *path, struct File **pf)
 	return walk_path(path, 0, pf, 0);
 }
 
+int
+file_create(const char *path, struct File **f)
+{
+	int r;
+	struct File *dir;
+	char filename[MAXNAMELEN];
+
+	r = walk_path(path, &dir, f, filename);
+	if (r == 0) {
+		/* open existing file */
+		return 0;
+	}
+
+	cprintf("TODO: support creating new files \n");
+	return -E_NOT_SUPP;
+}
+
+/** 
+ * Set effective file size by setting its offset and, possibly,
+ * size.
+ */ 
+int
+file_set_size(struct File *f, off_t newsize)
+{
+	if (newsize > f->f_size)
+		f->f_size = newsize;
+
+	cprintf("TODO: support setting file size \n");
+	return 0;
+}
+
 // Read count bytes from f into buf, starting from seek position
 // offset.  This meant to mimic the standard pread function.
 // Returns the number of bytes read, < 0 on error.
@@ -240,3 +271,32 @@ file_read(struct File *f, void *buf, size_t count, off_t offset)
 
 
 
+/**
+ * Write bytes to a file, extending it as necessary
+ * @return the number of bytes written or negative error code
+ */
+int
+file_write(struct File *f, const void *buf, size_t count, off_t offset)
+{
+	int r, bn;
+	off_t pos;
+	char *blk;
+
+	/* extend as necessary */
+	if ((offset + count) > f->f_size) {
+		r = file_set_size(f, (offset + count));
+		if (r)
+			return r;
+	}
+
+	for (pos = offset; pos < offset + count; ) {
+		if ((r = file_get_block(f, pos / BLKSIZE, &blk)) < 0)
+			return r;
+		bn = MIN(BLKSIZE - pos % BLKSIZE, offset + count - pos);
+		memmove(blk + pos % BLKSIZE, buf, bn);
+		pos += bn;
+		buf += bn;
+	}
+
+	return count;
+}
