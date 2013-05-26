@@ -2,6 +2,9 @@
 
 #include "fs.h"
 
+static void mark_block_free(uint32_t blockno);
+static void mark_block_used(uint32_t blockno);
+
 // --------------------------------------------------------------
 // Super block
 // --------------------------------------------------------------
@@ -40,6 +43,10 @@ fs_init(void)
 
 	// Set "super" to point to the super block.
 	super = diskaddr(1);
+
+	// Set 'bitmap' ...
+	bitmap = diskaddr(2);
+
 	check_super();
 }
 
@@ -64,17 +71,29 @@ file_block_walk(struct File *f, uint32_t filebno, uint32_t **ppdiskbno, bool all
 {
 	int r;
 	uint32_t *ptr;
-	char *blk;
 
-	if (filebno < NDIRECT)
+
+	if (filebno < NDIRECT) {
 		ptr = &f->f_direct[filebno];
+	}
 	else if (filebno < NDIRECT + NINDIRECT) {
 		if (f->f_indirect == 0) {
-			return -E_NOT_FOUND;
+			if ( !alloc )
+				return -E_NOT_FOUND;
+
+			/* allocate indirect block */
+			f->f_indirect = alloc_block();
+			if ( !f->f_indirect )
+				return -E_NO_DISK;
+			memset(diskaddr(f->f_indirect), 0, BLKSIZE);
 		}
-		ptr = (uint32_t*)diskaddr(f->f_indirect) + filebno - NDIRECT;
-	} else
+		ptr = &((uint32_t*)diskaddr(f->f_indirect))[filebno - NDIRECT];
+	}
+	else {
+		cprintf("%s: block number out of range: %u \n", __FUNCTION__, filebno);
+		*ppdiskbno = NULL;
 		return -E_INVAL;
+	}
 
 	*ppdiskbno = ptr;
 	return 0;
@@ -95,10 +114,33 @@ file_get_block(struct File *f, uint32_t filebno, char **blk)
 
 	if ((r = file_block_walk(f, filebno, &ptr, 1)) < 0)
 		return r;
+
+	/* allocate indirect block */
 	if (*ptr == 0) {
-		return -E_NOT_FOUND;
+		*ptr = alloc_block();
+		if (*ptr == 0)
+			return -E_NO_DISK;
 	}
+
 	*blk = diskaddr(*ptr);
+	return 0;
+}
+
+static int
+file_free_block(struct File *f, uint32_t linblock)
+{
+	int r;
+	uint32_t *block_ptr;
+
+	r = file_block_walk(f, linblock, &block_ptr, false);
+	if (r)
+		return r;
+
+	if (*block_ptr != 0) {
+		mark_block_free(*block_ptr);
+		*block_ptr = 0;
+	}
+
 	return 0;
 }
 
@@ -228,6 +270,8 @@ file_create(const char *path, struct File **f)
 	return -E_NOT_SUPP;
 }
 
+
+
 /** 
  * Set effective file size by setting its offset and, possibly,
  * size.
@@ -235,10 +279,24 @@ file_create(const char *path, struct File **f)
 int
 file_set_size(struct File *f, off_t newsize)
 {
-	if (newsize > f->f_size)
-		f->f_size = newsize;
+	uint32_t start_block;
+	uint32_t stop_block;
+	uint32_t n;
 
-	cprintf("TODO: support setting file size \n");
+	if (newsize < f->f_size) {
+		start_block = (newsize + BLKSIZE - 1) / BLKSIZE;
+		stop_block = (f->f_size + BLKSIZE - 1) / BLKSIZE;
+		for (n = start_block; n < stop_block; ++n) {
+			file_free_block(f, n);
+		}
+
+		if ((start_block <= NDIRECT) && (stop_block > NDIRECT)) {
+			mark_block_free(f->f_indirect);
+			f->f_indirect = 0;
+		}
+	}
+
+	f->f_size = newsize;
 	return 0;
 }
 
@@ -300,3 +358,61 @@ file_write(struct File *f, const void *buf, size_t count, off_t offset)
 
 	return count;
 }
+
+
+
+static bool
+bitmap_get_bit_value(uint32_t blockno)
+{
+	return (bitmap[blockno / 32] & (1 << (blockno % 32))) != 0;
+}
+
+static void
+bitmap_set_bit_value(uint32_t blockno, bool value)
+{
+	bitmap[blockno / 32] &= ~(1 << (blockno % 32));
+	bitmap[blockno / 32] |= (value << (blockno % 32));
+}
+
+
+
+bool
+block_is_free(uint32_t blockno)
+{
+	if ((super == NULL) || (blockno > super->s_nblocks)) {
+		cprintf("trying to access filesystem block out of range: %u \n", blockno);
+		return false;
+	}
+
+	return bitmap_get_bit_value(blockno);
+}
+
+static void
+mark_block_free(uint32_t blockno)
+{
+	panic_if((blockno == 0), "zero block fault");
+	bitmap_set_bit_value(blockno, true);
+}
+
+static void
+mark_block_used(uint32_t blockno)
+{
+	panic_if((blockno == 0), "zero block fault");
+	bitmap_set_bit_value(blockno, false);
+}
+
+int
+alloc_block(void)
+{
+	int n;
+
+	for (n = 1; n < super->s_nblocks; ++n) {
+		if (block_is_free(n)) {
+			mark_block_used(n);
+			return n;
+		}
+	}
+
+	return 0;
+}
+
