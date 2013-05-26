@@ -267,10 +267,21 @@ serve_stat(envid_t envid, union Fsipc *ipc)
 }
 
 
-// Our read-only file system do nothing for flush
 int
 serve_flush(envid_t envid, struct Fsreq_flush *req)
 {
+	struct OpenFile *of;
+	int r;
+
+	if (debug)
+		cprintf("%s: %08x %08x \n", __FUNCTION__, envid, req->req_fileid);
+
+	r = openfile_lookup(envid, req->req_fileid, &of);
+	if (r)
+		return r;
+
+	file_flush(of->o_file);
+
 	return 0;
 }
 

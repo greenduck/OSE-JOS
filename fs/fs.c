@@ -300,6 +300,41 @@ file_set_size(struct File *f, off_t newsize)
 	return 0;
 }
 
+
+
+/** 
+ * Flush file contents to the disk.
+ * Applied to both data and metadata.
+ */ 
+void
+file_flush(struct File *f)
+{
+	int r;
+	int n;
+	int stop_block = (f->f_size + BLKSIZE - 1) / BLKSIZE;
+	uint32_t *block;
+
+	for (n = 0; n < stop_block; ++n) {
+		r = file_block_walk(f, n, &block, false);
+		if ((r == -E_INVAL) || (block == NULL)) {
+			cprintf("could not flush file to disk: %e \n", r);
+			return;
+		}
+		if ((r == -E_NOT_FOUND) || (*block == 0)) {
+			continue;
+		}
+
+		flush_block(diskaddr(*block));
+	}
+
+	if (f->f_indirect)
+		flush_block(diskaddr(f->f_indirect));
+
+	flush_block(f);
+}
+
+
+
 // Read count bytes from f into buf, starting from seek position
 // offset.  This meant to mimic the standard pread function.
 // Returns the number of bytes read, < 0 on error.

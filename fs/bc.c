@@ -10,6 +10,31 @@ diskaddr(uint32_t blockno)
 	return (char*) (DISKMAP + blockno * BLKSIZE);
 }
 
+static uint32_t
+diskblock(void *addr)
+{
+	panic_if(((addr < (void *)DISKMAP) || (addr >= (void *)(DISKMAP + DISKSIZE))), "accessing disk address out of range: %08x", addr);
+	return ((uint32_t)addr - DISKMAP) / BLKSIZE;
+}
+
+/** 
+ * @return 'true' if 'va' is mapped in this environment
+ */ 
+bool
+va_is_mapped(void *va)
+{
+	return (uvpd[PDX(va)] & PTE_P) && (uvpt[PGNUM(va)] & PTE_P);
+}
+
+/** 
+ * @return 'true' if 'va' has been write-accessed
+ */ 
+bool
+va_is_dirty(void *va)
+{
+	return (uvpt[PGNUM(va)] & PTE_D) != 0;
+}
+
 // Fault any disk block that is read in to memory by
 // loading it from disk.
 static void
@@ -41,7 +66,7 @@ bc_pgfault(struct UTrapframe *utf)
 	panic_if(r, "could not read sector %u from disk drive: %e", r);
 
 	// TODO:
-	// flush cached blocks to disk
+	// flush cached blocks to disk, as block cache fills up
 }
 
 
@@ -53,5 +78,33 @@ bc_init(void)
 
 	// cache the super block by reading it once
 	memmove(&super, diskaddr(1), sizeof super);
+}
+
+
+
+/**
+ * Flush block contents to the disk.
+ * Only 'dirty' blocks should be flushed.
+ */
+void
+flush_block(void *addr)
+{
+	int r;
+
+	if (!va_is_mapped(addr) || !va_is_dirty(addr)) {
+		/* block clean - nothing to do */
+		return;
+	}
+
+	void *addr_fixed = ROUNDDOWN(addr, BLKSIZE);
+	uint32_t blockno = diskblock(addr_fixed);
+	uint32_t sector = blockno * BLKSECTS;
+	pte_t perm_clean = uvpt[PGNUM(addr_fixed)] & PTE_SYSCALL;
+
+	r = ide_write(sector, addr_fixed, BLKSECTS);
+	panic_if(r, "could not flush block %u to disk: %e", blockno, r);
+
+	r = sys_page_map(0, addr_fixed, 0, addr_fixed, perm_clean);
+	panic_if(r, "could not re-map page %08x: %e", addr, r);
 }
 
