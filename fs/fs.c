@@ -126,6 +126,23 @@ file_get_block(struct File *f, uint32_t filebno, char **blk)
 	return 0;
 }
 
+/** 
+ * Free disk block and unmap its block cache page.
+ * In case there is no mapped memory page - suceed silently.
+ */ 
+static void
+__free_block(uint32_t *block_ptr)
+{
+	int r;
+
+	mark_block_free(*block_ptr);
+
+	r = sys_page_unmap(0, diskaddr(*block_ptr));
+	panic_if(r, "could not unmap disk block %u: %e", *block_ptr, r);
+
+	*block_ptr = 0;
+}
+
 static int
 file_free_block(struct File *f, uint32_t linblock)
 {
@@ -137,8 +154,7 @@ file_free_block(struct File *f, uint32_t linblock)
 		return r;
 
 	if (*block_ptr != 0) {
-		mark_block_free(*block_ptr);
-		*block_ptr = 0;
+		__free_block(block_ptr);
 	}
 
 	return 0;
@@ -291,8 +307,7 @@ file_set_size(struct File *f, off_t newsize)
 		}
 
 		if ((start_block <= NDIRECT) && (stop_block > NDIRECT)) {
-			mark_block_free(f->f_indirect);
-			f->f_indirect = 0;
+			__free_block(&f->f_indirect);
 		}
 	}
 
