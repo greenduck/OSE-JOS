@@ -83,28 +83,31 @@ bc_init(void)
 
 
 /**
- * Flush block contents to the disk.
- * Only 'dirty' blocks should be flushed.
+ * Unmap memory page caching a disk block, while flushing block 
+ * contents to the disk (only in case it is 'dirty')
  */
 void
 flush_block(void *addr)
 {
+	void *addr_fixed;
+	uint32_t blockno;
+	uint32_t sector;
 	int r;
 
-	if (!va_is_mapped(addr) || !va_is_dirty(addr)) {
-		/* block clean - nothing to do */
+	if (!va_is_mapped(addr))
 		return;
+
+	addr_fixed = ROUNDDOWN(addr, BLKSIZE);
+
+	if (va_is_dirty(addr)) {
+		blockno = diskblock(addr_fixed);
+		sector = blockno * BLKSECTS;
+
+		r = ide_write(sector, addr_fixed, BLKSECTS);
+		panic_if(r, "could not flush block %u to disk: %e", blockno, r);
 	}
 
-	void *addr_fixed = ROUNDDOWN(addr, BLKSIZE);
-	uint32_t blockno = diskblock(addr_fixed);
-	uint32_t sector = blockno * BLKSECTS;
-	pte_t perm_clean = uvpt[PGNUM(addr_fixed)] & PTE_SYSCALL;
-
-	r = ide_write(sector, addr_fixed, BLKSECTS);
-	panic_if(r, "could not flush block %u to disk: %e", blockno, r);
-
-	r = sys_page_map(0, addr_fixed, 0, addr_fixed, perm_clean);
-	panic_if(r, "could not re-map page %08x: %e", addr, r);
+	r = sys_page_unmap(0, addr_fixed);
+	panic_if(r, "could not unmap page %08x: %e", addr, r);
 }
 
