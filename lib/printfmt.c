@@ -177,7 +177,7 @@ vprintfmt(void (*putch)(int, void*), void *putdat, const char *fmt, va_list ap)
 			if (err >= MAXERROR || (p = error_string[err]) == NULL)
 				printfmt(putch, putdat, "error %d", err);
 			else
-				printfmt(putch, putdat, "%s", p);
+				printfmt(putch, putdat, "%s (%d)", p, err);
 			break;
 
 		// string
