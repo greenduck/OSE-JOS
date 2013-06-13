@@ -37,7 +37,7 @@ FSIMGTXTFILES :=	$(FSIMGTXTFILES) \
 			fs/testshell.key \
 			fs/testshell.sh
 
-MODFILES :=	$(OBJDIR)/module/hello.o
+MODFILES :=	$(OBJDIR)/module/hello.ko
 
 SYMFILES :=	$(OBJDIR)/kern/kernel.sym
 

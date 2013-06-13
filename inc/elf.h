@@ -59,7 +59,47 @@ struct Secthdr {
 #define ELF_SHT_SYMTAB		2
 #define ELF_SHT_STRTAB		3
 
+#define ELF_SHT_NOBITS		8
+#define ELF_SHT_REL		9
+
 // Values for Secthdr::sh_name
 #define ELF_SHN_UNDEF		0
+
+/* 
+ * Constants and data structures below were imported from /usr/include/elf.h
+ */
+
+/* Secthdr::sh_flags */
+#define SHF_WRITE		0x1
+#define SHF_ALLOC		0x2
+#define SHF_EXECINSTR		0x4
+#define SHF_MASKPROC		0xf0000000
+
+
+/* The following are used with relocations */
+#define ELF32_R_SYM(x)		((x) >> 8)
+#define ELF32_R_TYPE(x)		((x) & 0xff)
+
+struct elf32_rel {
+	uint32_t	r_offset;
+	uint32_t	r_info;
+};
+
+/* i386 relocation types (partial list)  */
+#define R_386_NONE	   0		/* No reloc */
+#define R_386_32	   1		/* Direct 32 bit  */
+#define R_386_PC32	   2		/* PC relative 32 bit */
+
+/* Symbol table entry */
+typedef struct
+{
+	uint32_t	st_name;	/* Symbol name (string tbl index) */
+	uint32_t	st_value;	/* Symbol value */
+	uint32_t	st_size;	/* Symbol size */
+	unsigned char	st_info;	/* Symbol type and binding */
+	unsigned char	st_other;	/* Symbol visibility */
+	uint16_t	st_shndx;	/* Section index */
+} Elf32_Sym;
+
 
 #endif /* !JOS_INC_ELF_H */

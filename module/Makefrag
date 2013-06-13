@@ -1,10 +1,15 @@
 WORK = module
 OBJDIRS += $(WORK)
+MODULE_LDFLAGS := $(LDFLAGS) -T $(WORK)/module.ld -nostdlib -r
 
 $(OBJDIR)/$(WORK)/%.o: $(WORK)/%.c $(OBJDIR)/.vars.KERN_CFLAGS
 	@echo + cc[MODULE] $<
 	@mkdir -p $(@D)
 	$(V)$(CC) -nostdinc $(KERN_CFLAGS) -c -o $@ $<
-	$(V)$(OBJDUMP) -S $@ > $(patsubst %.o, %.asm, $@)
-	$(V)$(NM) -n $@ > $(patsubst %.o, %.sym, $@)
+
+$(OBJDIR)/$(WORK)/%.ko: $(OBJDIR)/$(WORK)/%.o $(WORK)/module.ld
+	@echo + ld $@
+	$(V)$(LD) -o $@ $(MODULE_LDFLAGS) $<
+	$(V)$(OBJDUMP) -S $@ > $(patsubst %.ko, %.asm, $@)
+	$(V)$(NM) -n $@ > $(patsubst %.ko, %.sym, $@)
 
