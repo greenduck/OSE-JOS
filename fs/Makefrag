@@ -39,7 +39,8 @@ FSIMGTXTFILES :=	$(FSIMGTXTFILES) \
 
 MODFILES :=	$(OBJDIR)/module/hello.ko
 
-SYMFILES :=	$(OBJDIR)/kern/kernel.sym
+SYMFILES :=	$(OBJDIR)/kern/kernel.symtab \
+			$(OBJDIR)/kern/kernel.strtab
 
 
 FSIMGFILES := $(FSIMGTXTFILES) $(USERAPPS) $(MODFILES)

@@ -2,7 +2,7 @@
 #include <inc/string.h>
 #include <inc/elf.h>
 
-#define SYMTAB_FILENAME		"kernel.sym"
+#define KERNEL_SYMTAB_PREFIX	"kernel"
 #define MAX_NR_SEC		16
 
 #define DEBUG
@@ -23,9 +23,14 @@ struct ModInfo {
 
 
 static void print_usage(void);
-static int mod_insert(const char *mod_filename, const char *symtab_filename);
+static int mod_insert(const char *mod_filename);
 static int mod_load_file(void *addr, int fd, struct ModInfo *info);
 static int mod_relocate_text_section(void *text, int fd, struct ModInfo *info);
+
+int kernel_symtab_init(void);
+void kernel_symtab_cleanup(void);
+Elf32_Sym *kernel_symtab_get(const char *name);
+void kernel_symtab_unittest(void);
 
 static struct ModInfo mod_info = {0};
 
@@ -55,7 +60,7 @@ umain(int argc, char **argv)
 	print_usage();
 
 mod_insert:
-	mod_insert(name, SYMTAB_FILENAME);
+	mod_insert(name);
 	return;
 
 mod_remove:
@@ -78,18 +83,15 @@ print_usage(void)
 }
 
 static int
-mod_insert(const char *mod_filename, const char *symtab_filename)
+mod_insert(const char *mod_filename)
 {
 	int mod_fd;
-	int symtab_fd;
-	int err = 0;
+	int err;
 
-	symtab_fd = open(symtab_filename, O_RDONLY);
-	if (symtab_fd < 0) {
-		cprintf("could not open file '%s': %e \n", symtab_filename, symtab_fd);
-		err = symtab_fd;
+	err = kernel_symtab_init();
+	if (err < 0)
 		goto out;
-	}
+	kernel_symtab_unittest();
 
 	mod_fd = open(mod_filename, O_RDONLY);
 	if (mod_fd < 0) {
@@ -105,13 +107,14 @@ mod_insert(const char *mod_filename, const char *symtab_filename)
 	}
 
 	err = mod_load_file(UTEMP, mod_fd, &mod_info);
+	err = mod_relocate_text_section(NULL, mod_fd, &mod_info);
 
 
 out_cleanup_2:
 	close(mod_fd);
 
 out_cleanup_1:
-	close(symtab_fd);
+	kernel_symtab_cleanup();
 
 out:
 	return err;
@@ -238,7 +241,7 @@ mod_load_file(void *addr, int fd, struct ModInfo *info)
 			dbg_printf("[STR] \n");
 			if (!strcmp(".strtab", sec_name)) {
 				info->strtab_index = i;
-				dbg_print_symbol_names(fd, sec.sh_offset, sec.sh_size);
+				// dbg_print_symbol_names(fd, sec.sh_offset, sec.sh_size);
 			}
 			break;
 
@@ -246,7 +249,7 @@ mod_load_file(void *addr, int fd, struct ModInfo *info)
 			dbg_printf("[REL] \n");
 			if (!strcmp(".rel.text", sec_name)) {
 				info->rel_text_index = i;
-				dbg_print_relocation_table(fd, sec.sh_offset, sec.sh_size);
+				// dbg_print_relocation_table(fd, sec.sh_offset, sec.sh_size);
 			}
 			break;
 
@@ -271,7 +274,7 @@ mod_load_file(void *addr, int fd, struct ModInfo *info)
 
 	return 0;
 }
-#if 0
+
 static int
 mod_relocate_text_section(void *text, int fd, struct ModInfo *info)
 {
@@ -282,11 +285,16 @@ mod_relocate_text_section(void *text, int fd, struct ModInfo *info)
 	uint32_t r_offset;
 	uint32_t r_sym;
 	uint8_t r_type;
+	uint8_t st_bind;
 
 	int i;
 	int line = -1;
-	uint32_t value;
+
 	char symbol_names[512];
+	char *name;
+	uint32_t value;
+	int sec_index;
+	Elf32_Sym rel_sym;
 
 	struct elf32_rel rel;
 	int count = rel_sec->sh_size / sizeof(struct elf32_rel);
@@ -299,6 +307,7 @@ mod_relocate_text_section(void *text, int fd, struct ModInfo *info)
 	}
 	seek(fd, str_sec->sh_offset);
 	readn(fd, symbol_names, str_sec->sh_size);
+	dbg_print_string_table("local symbol names", symbol_names, str_sec->sh_size);
 
 
 
@@ -310,14 +319,30 @@ mod_relocate_text_section(void *text, int fd, struct ModInfo *info)
 		r_offset = rel.r_offset;
 		r_sym = ELF32_R_SYM(rel.r_info);
 		r_type = ELF32_R_TYPE(rel.r_info);
+		dbg_printf("%2d: %08x %06x|%02x ", i, r_offset, r_sym, r_type);
 
-		if (FIXME_symbol_name[0] != 0) {
-			/* .text */
+		/* read symbol being relocated */
+		seek(fd, (sym_sec->sh_offset + (r_sym * sizeof(Elf32_Sym))));
+		readn(fd, &rel_sym, sizeof(Elf32_Sym));
 
-			value = FIXME_symbol_value(FIXME_symbol_name);
+		if (rel_sym.st_name != 0) {
+			/* named symbol: function or global variable */
+
+			name = (symbol_names + rel_sym.st_name);
+			st_bind = ELF_ST_BIND(rel_sym.st_info);
+			dbg_printf("[%s: bind = %d  ndx = %d] \n", name, st_bind, rel_sym.st_shndx);
+			if (rel_sym.st_shndx > 0) {
+				/* symbol defined in 'this module's' sections */
+				value = rel_sym.st_value;
+			}
+			else {
+				/* symbol is (supposedly) defined in the kernel symbol table */
+				value = kernel_symtab_get(name)->st_value;
+			}
 
 			switch (r_type)
 			{
+#if 0
 			case R_386_32:		/* Direct 32 bit  */
 				*(uint32_t *)(text + r_offset) = value;
 				break;
@@ -325,31 +350,198 @@ mod_relocate_text_section(void *text, int fd, struct ModInfo *info)
 			case R_386_PC32:	/* PC relative 32 bit */
 				*(uint32_t *)(text + r_offset) = value - (FIXME_to_kernel_address( text ) + r_offset + 4);
 				break;
-
+#endif
 			default:
 				line = __LINE__;
-				goto out_not_supported;
+				goto out_not_supported_reloc_type;
 			}
 		}
 		else {
-			/* .rodata, .bss, .data */
+			/* unnamed (local) symbol in  .rodata, .bss, .data  sections */
 
+			dbg_printf("[unnamed] \n");
 			if (r_type != R_386_32) {
 				line = __LINE__;
-				goto out_not_supported;
+				goto out_not_supported_reloc_type;
 			}
 
-			ndx = FIXME_symbol_ndx;
-			addr = FIXME_to_kernel_address( info->sections[ndx].addr );
+			sec_index = rel_sym.st_shndx;
+			if ((sec_index < 0) || (sec_index >= MAX_NR_SEC))
+				goto out_index_out_of_range;
+
+#if 0
+			addr = FIXME_to_kernel_address( info->sections[sec_index].sh_addr );
 			/* read-modify-write */
 			*(uint32_t *)(text + r_offset) = *(uint32_t *)(text + r_offset) + addr;
+#endif
 		}
 	}
 
 	return 0;
 
-out_not_supported:
-	cprintf("This implementation is missing support for relocation type %d \n", r_type);
+out_not_supported_reloc_type:
+	cprintf("This implementation is missing support for relocation type %d (line %d) \n", r_type, line);
 	return -E_NOT_SUPP;
+
+out_not_supported_sym_binding:
+	cprintf("This implementation is missing suuport for symbol binding type %d \n", ELF_ST_BIND(rel_sym.st_info));
+	return -E_NOT_SUPP;
+
+out_index_out_of_range:
+	cprintf("Section index out of range: %d \n", sec_index);
+	return -E_INVAL;
 }
+
+// ------------------------
+static int fd_symtab;
+static int fd_strtab;
+
+int
+kernel_symtab_init(void)
+{
+	char *filename;
+	int err;
+
+	filename = KERNEL_SYMTAB_PREFIX".symtab";
+	fd_symtab = open(filename, O_RDONLY);
+	if (fd_symtab < 0) {
+		cprintf("could not open file '%s': %e \n", filename, fd_symtab);
+		err = fd_symtab;
+		goto out;
+	}
+
+	filename = KERNEL_SYMTAB_PREFIX".strtab";
+	fd_strtab = open(filename, O_RDONLY);
+	if (fd_strtab < 0) {
+		cprintf("could not open file '%s': %e \n", filename, fd_strtab);
+		err = fd_strtab;
+		goto out_cleanup_1;
+	}
+
+	return 0;
+
+out_cleanup_1:
+	close(fd_symtab);
+
+out:
+	return err;
+}
+
+void
+kernel_symtab_cleanup(void)
+{
+	close(fd_symtab);
+	close(fd_strtab);
+}
+
+static int
+kernel_symtab_get_index_by_name(const char *name)
+{
+	char string_buff[512];
+	off_t offset;
+	off_t delta;
+	int terminate;
+	int i;
+	int n;
+
+	offset = 0;
+	terminate = 0;
+	while (!terminate) {
+		seek(fd_strtab, offset);
+		n = readn(fd_strtab, string_buff, sizeof(string_buff));
+		if (n < sizeof(string_buff))
+			terminate = 1;
+
+		delta = 0;
+		for (i = 0; i < (n - strlen(name)); ++i, ++delta) {
+			if (string_buff[i] == name[0]) {
+				offset += delta;
+				delta = 0;
+				if (!strcmp(&string_buff[i], name)) {
+					/* hallelujah */
+					return (int)offset;
+				}
+			}
+			else if (string_buff[i] == 0) {
+				offset += delta;
+				delta = 0;
+			}
+		}
+	}
+
+	cprintf("kernel symbol could not be found: %s \n", name);
+	return -E_NOT_FOUND;
+}
+
+Elf32_Sym *
+kernel_symtab_get(const char *name)
+{
+	static Elf32_Sym ksym;
+	int sym_index;
+	off_t offset;
+	int n;
+
+	sym_index = kernel_symtab_get_index_by_name(name);
+	if (sym_index < 0)
+		return NULL;
+
+
+	for (offset = 0; ; offset += sizeof(Elf32_Sym)) {
+		seek(fd_symtab, offset);
+		n = readn(fd_symtab, &ksym, sizeof(Elf32_Sym));
+		if (n < sizeof(Elf32_Sym))
+			break;
+
+		/* ATTENTION !
+		 * we always return pointer to the same object, 
+		 * meaning there is no reason to deal with more than 1 kernel symbol 
+		 * at the same time. 
+		 */
+		if (ksym.st_name == sym_index)
+			return &ksym;
+	}
+
+	cprintf("BUG: kernel symbol could not be found after successful name identification: %d \n", name);
+	return NULL;
+}
+
+#ifdef DEBUG
+void
+kernel_symtab_unittest(void)
+{
+	char *name[] = {
+		"try_to_run",
+		"_binary_obj_user_dumbfork",
+		"strcpy",
+		"kbd_intr",
+		"i386_init",
+		"print_trapframe",
+		"ismp",
+		"andrey_rules"
+	};
+
+	int i;
+	Elf32_Sym *sym;
+	int test;
+
+	for (i = 0; i < 8; ++i) {
+		sym = kernel_symtab_get(name[i]);
+		if (i < 7) {
+			test = (sym != NULL);
+		}
+		else {
+			test = (sym == NULL);
+		}
+
+		cprintf("%s: %s \n", __FUNCTION__, (test ? "OK" : "FAILURE"));
+	}
+}
+
+#else
+
+void
+kernel_symtab_unittest(void)
+{ }
 #endif
+// ------------------------
+

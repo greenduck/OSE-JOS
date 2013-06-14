@@ -101,5 +101,14 @@ typedef struct
 	uint16_t	st_shndx;	/* Section index */
 } Elf32_Sym;
 
+/* Tools for parsing Elf32_Sym.st_info */
+
+#define ELF_ST_BIND(x)	((x) >> 4)
+#define ELF_ST_TYPE(x)	(((unsigned int) x) & 0xf)
+
+#define STB_LOCAL	0
+#define STB_GLOBAL	1
+#define STB_WEAK	2
+
 
 #endif /* !JOS_INC_ELF_H */
