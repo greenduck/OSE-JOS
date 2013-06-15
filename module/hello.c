@@ -3,6 +3,9 @@
 int random_num(void)
 {
 	volatile int num = num;
+
+	if (num < 0)
+		num *= -1;
 	return num;
 }
 

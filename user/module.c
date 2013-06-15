@@ -1,6 +1,7 @@
 #include <inc/lib.h>
 #include <inc/string.h>
 #include <inc/elf.h>
+#include <inc/memlayout.h>
 
 #define KERNEL_SYMTAB_PREFIX	"kernel"
 #define MAX_NR_SEC		16
@@ -15,10 +16,16 @@
 
 
 struct ModInfo {
-	int symtab_index;
-	int strtab_index;
-	int rel_text_index;
-	struct Secthdr sec[MAX_NR_SEC];
+	int		symtab_index;
+	int		strtab_index;
+	int		rel_text_index;
+	int		text_index;
+	uint32_t	tot_size;
+	struct Secthdr	sec[MAX_NR_SEC];
+
+	/* entry and exit points */
+	int (*init_module)(void);
+	void (*cleanup_module)(void);
 };
 
 
@@ -26,11 +33,16 @@ static void print_usage(void);
 static int mod_insert(const char *mod_filename);
 static int mod_load_file(void *addr, int fd, struct ModInfo *info);
 static int mod_relocate_text_section(void *text, int fd, struct ModInfo *info);
+static int mod_load_symbols(int fd, struct ModInfo *info);
+
+static void dbg_dump_text_section(struct ModInfo *info);
 
 int kernel_symtab_init(void);
 void kernel_symtab_cleanup(void);
 Elf32_Sym *kernel_symtab_get(const char *name);
 void kernel_symtab_unittest(void);
+
+uint32_t virt_addr_translate_to_kernel(uint32_t va);
 
 static struct ModInfo mod_info = {0};
 
@@ -87,6 +99,7 @@ mod_insert(const char *mod_filename)
 {
 	int mod_fd;
 	int err;
+	void *text;
 
 	err = kernel_symtab_init();
 	if (err < 0)
@@ -107,7 +120,18 @@ mod_insert(const char *mod_filename)
 	}
 
 	err = mod_load_file(UTEMP, mod_fd, &mod_info);
-	err = mod_relocate_text_section(NULL, mod_fd, &mod_info);
+	if (err != 0)
+		goto out_cleanup_2;
+
+	text = (void *)mod_info.sec[ mod_info.text_index ].sh_addr;
+	err = mod_relocate_text_section(text, mod_fd, &mod_info);
+	if (err != 0)
+		goto out_cleanup_2;
+
+	dbg_dump_text_section(&mod_info);
+	err = mod_load_symbols(mod_fd, &mod_info);
+	if (err != 0)
+		goto out_cleanup_2;
 
 
 out_cleanup_2:
@@ -185,6 +209,29 @@ dbg_print_relocation_table(int fd, uint32_t rel_sh_offset, uint32_t rel_sh_size)
 { }
 #endif
 
+#ifdef DEBUG
+static void
+dbg_dump_text_section(struct ModInfo *info)
+{
+	int i;
+	struct Secthdr *text_sec = &info->sec[ info->text_index ];
+
+	cprintf("text section dump -------------- \n");
+	for (i = 0; i < text_sec->sh_size; ++i) {
+			if (i % 16 == 0)
+				cprintf("%s[%2x]", (i > 0 ? "\n" : ""), i);
+			cprintf(" %02x", ((unsigned char *)text_sec->sh_addr)[i]);
+	}
+	cprintf("\n-------------------------------- \n");
+}
+
+#else
+
+static void
+dbg_dump_text_section(struct ModInfo *info)
+{ }
+#endif
+
 static int
 mod_load_file(void *addr, int fd, struct ModInfo *info)
 {
@@ -193,6 +240,7 @@ mod_load_file(void *addr, int fd, struct ModInfo *info)
 	char string_buff[512];
 	int i;
 	char *sec_name;
+	uint32_t fixed_size;
 
 	readn(fd, &elf, sizeof(struct Elf));
 
@@ -253,21 +301,31 @@ mod_load_file(void *addr, int fd, struct ModInfo *info)
 			}
 			break;
 
-		default:
-			if ( !((sec.sh_flags & SHF_ALLOC) && (sec.sh_size > 0) && (sec.sh_addr == 0)) ) {
-				dbg_printf("[---] \n");
-				break;
-			}
-
-			if (sec.sh_type == ELF_SHT_NOBITS) {
+		case ELF_SHT_NOBITS:
+			if ((sec.sh_flags & SHF_ALLOC) && (sec.sh_size > 0)) {
 				memset(addr, 0, sec.sh_size);
+
+				info->sec[i].sh_addr = (uint32_t)addr;
+				fixed_size = ROUNDUP(sec.sh_size, sizeof(uint32_t));
+				info->tot_size += fixed_size;
+				addr += fixed_size;
 			}
-			else {
+			break;
+
+		case ELF_SHT_PROGBITS:
+		default:
+			if ((sec.sh_flags & SHF_ALLOC) && (sec.sh_size > 0)) {
+				if (!strcmp(".text", sec_name))
+					info->text_index = i;
+
 				seek(fd, sec.sh_offset);
 				readn(fd, addr, sec.sh_size);
+
+				info->sec[i].sh_addr = (uint32_t)addr;
+				fixed_size = ROUNDUP(sec.sh_size, sizeof(uint32_t));
+				info->tot_size += fixed_size;
+				addr += fixed_size;
 			}
-			addr += sec.sh_size;
-			dbg_printf("[+++] \n");
 			break;
 		}
 	}
@@ -295,6 +353,7 @@ mod_relocate_text_section(void *text, int fd, struct ModInfo *info)
 	uint32_t value;
 	int sec_index;
 	Elf32_Sym rel_sym;
+	uint32_t kaddr;
 
 	struct elf32_rel rel;
 	int count = rel_sec->sh_size / sizeof(struct elf32_rel);
@@ -342,15 +401,16 @@ mod_relocate_text_section(void *text, int fd, struct ModInfo *info)
 
 			switch (r_type)
 			{
-#if 0
 			case R_386_32:		/* Direct 32 bit  */
 				*(uint32_t *)(text + r_offset) = value;
 				break;
 
 			case R_386_PC32:	/* PC relative 32 bit */
-				*(uint32_t *)(text + r_offset) = value - (FIXME_to_kernel_address( text ) + r_offset + 4);
+				kaddr = virt_addr_translate_to_kernel((uint32_t)text);
+				cprintf("user to kernel address translation: %08x -> %08x \n", (uint32_t)text, kaddr);
+				*(uint32_t *)(text + r_offset) = value - (kaddr + r_offset + 4);
 				break;
-#endif
+
 			default:
 				line = __LINE__;
 				goto out_not_supported_reloc_type;
@@ -369,11 +429,10 @@ mod_relocate_text_section(void *text, int fd, struct ModInfo *info)
 			if ((sec_index < 0) || (sec_index >= MAX_NR_SEC))
 				goto out_index_out_of_range;
 
-#if 0
-			addr = FIXME_to_kernel_address( info->sections[sec_index].sh_addr );
+			kaddr = virt_addr_translate_to_kernel( info->sec[sec_index].sh_addr );
+			cprintf("user to kernel address translation: %08x -> %08x \n", info->sec[sec_index].sh_addr, kaddr);
 			/* read-modify-write */
-			*(uint32_t *)(text + r_offset) = *(uint32_t *)(text + r_offset) + addr;
-#endif
+			*(uint32_t *)(text + r_offset) = *(uint32_t *)(text + r_offset) + kaddr;
 		}
 	}
 
@@ -390,6 +449,59 @@ out_not_supported_sym_binding:
 out_index_out_of_range:
 	cprintf("Section index out of range: %d \n", sec_index);
 	return -E_INVAL;
+}
+
+/** 
+ * Currently we identify module entry / exit points as totally
+ * essential.
+ * As a future enhancement one could add all these symbols to
+ * the kernel symbol table allowing other modules to
+ * (dynamically) link against this one.
+ */ 
+static int
+mod_load_symbols(int fd, struct ModInfo *info)
+{
+	struct Secthdr *sym_sec = &info->sec[ info->symtab_index ];
+	struct Secthdr *str_sec = &info->sec[ info->strtab_index ];
+	Elf32_Sym sym;
+	char symbol_names[512];
+	int count;
+	int i;
+	int err = -2;
+
+	uint32_t text;
+	uint32_t ktext;
+
+	if (str_sec->sh_size > sizeof(symbol_names)) {
+		cprintf("ELF .strtab section is too big (%d bytes) \n", str_sec->sh_size);
+		return -E_NO_MEM;
+	}
+
+	/* one last relocation ... */
+	text = info->sec[ info->text_index ].sh_addr;
+	ktext = virt_addr_translate_to_kernel(text);
+
+	seek(fd, str_sec->sh_offset);
+	readn(fd, symbol_names, str_sec->sh_size);
+
+	count = sym_sec->sh_size / sizeof(Elf32_Sym);
+	for (i = 0; i < count; ++i) {
+		seek(fd, (sym_sec->sh_offset + (i * sizeof(Elf32_Sym))));
+		readn(fd, &sym, sizeof(Elf32_Sym));
+
+		if (!strcmp("init_module", (symbol_names + sym.st_name))) {
+			info->init_module = (void *)(sym.st_value + ktext);
+			++err;
+		}
+		else if (!strcmp("cleanup_module", (symbol_names + sym.st_name))) {
+			info->cleanup_module = (void *)(sym.st_value + ktext);
+			++err;
+        	}
+	}
+
+	if (err != 0)
+		cprintf("%d essential module symbols could not be identified \n", -err);
+	return err;
 }
 
 // ------------------------
@@ -511,7 +623,7 @@ kernel_symtab_unittest(void)
 {
 	char *name[] = {
 		"try_to_run",
-		"_binary_obj_user_dumbfork",
+		"cprintf",
 		"strcpy",
 		"kbd_intr",
 		"i386_init",
@@ -522,18 +634,21 @@ kernel_symtab_unittest(void)
 
 	int i;
 	Elf32_Sym *sym;
-	int test;
+	uint32_t value;
+	int expected;
 
 	for (i = 0; i < 8; ++i) {
 		sym = kernel_symtab_get(name[i]);
 		if (i < 7) {
-			test = (sym != NULL);
+			expected = (sym != NULL);
+			value = sym->st_value;
 		}
 		else {
-			test = (sym == NULL);
+			expected = (sym == NULL);
+			value = 0xffffffff;
 		}
 
-		cprintf("%s: %s \n", __FUNCTION__, (test ? "OK" : "FAILURE"));
+		cprintf("%s: %s  [%s : %08x] \n", __FUNCTION__, (expected ? "OK" : "FAILURE"), name[i], value);
 	}
 }
 
@@ -543,5 +658,20 @@ void
 kernel_symtab_unittest(void)
 { }
 #endif
+
+// ------------------------
+/* imported from pmap.h */
+#define KADDR(pa)	(pa + KERNBASE)
+
+/**
+ * The magic formula that translates user-space address to
+ * kernel address.
+ */
+uint32_t
+virt_addr_translate_to_kernel(uint32_t va)
+{
+	pte_t pgtab_entry = uvpt[PGNUM(va)];
+	return KADDR( PTE_ADDR( pgtab_entry )) + PGOFF(va);
+}
 // ------------------------
 
