@@ -498,6 +498,14 @@ sys_ipc_recv(void *dstva)
 	return 0;
 }
 
+
+static int
+sys_init_module(void *init_module)
+{
+	return ((int (*)(void))init_module)();
+}
+
+
 // Dispatches to the correct kernel function, passing the arguments.
 int32_t
 syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, uint32_t a5)
@@ -534,6 +542,8 @@ syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, 
 		return sys_ipc_try_send((envid_t)a1, (uint32_t)a2, (void *)a3, (unsigned)a4);
 	case SYS_ipc_recv:
 		return sys_ipc_recv((void *)a1);
+	case SYS_init_module:
+		return sys_init_module((void *)a1);
 	default:
 		return -E_INVAL;
 	}

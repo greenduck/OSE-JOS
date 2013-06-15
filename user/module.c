@@ -129,9 +129,16 @@ mod_insert(const char *mod_filename)
 		goto out_cleanup_2;
 
 	dbg_dump_text_section(&mod_info);
+
 	err = mod_load_symbols(mod_fd, &mod_info);
 	if (err != 0)
 		goto out_cleanup_2;
+
+
+	err = sys_init_module(mod_info.init_module);
+	if (err != 0) {
+		cprintf("module loading has failed: %e \n", err);
+	}
 
 
 out_cleanup_2:
@@ -353,7 +360,6 @@ mod_relocate_text_section(void *text, int fd, struct ModInfo *info)
 	uint32_t value;
 	int sec_index;
 	Elf32_Sym rel_sym;
-	uint32_t kaddr;
 
 	struct elf32_rel rel;
 	int count = rel_sec->sh_size / sizeof(struct elf32_rel);
@@ -392,7 +398,15 @@ mod_relocate_text_section(void *text, int fd, struct ModInfo *info)
 			dbg_printf("[%s: bind = %d  ndx = %d] \n", name, st_bind, rel_sym.st_shndx);
 			if (rel_sym.st_shndx > 0) {
 				/* symbol defined in 'this module's' sections */
+				sec_index = rel_sym.st_shndx;
+				if (sec_index >= MAX_NR_SEC) {
+					line = __LINE__;
+					goto out_index_out_of_range;
+				}
+
 				value = rel_sym.st_value;
+				value += info->sec[ sec_index ].sh_addr;
+				value = virt_addr_translate_to_kernel(value);
 			}
 			else {
 				/* symbol is (supposedly) defined in the kernel symbol table */
@@ -406,9 +420,7 @@ mod_relocate_text_section(void *text, int fd, struct ModInfo *info)
 				break;
 
 			case R_386_PC32:	/* PC relative 32 bit */
-				kaddr = virt_addr_translate_to_kernel((uint32_t)text);
-				cprintf("user to kernel address translation: %08x -> %08x \n", (uint32_t)text, kaddr);
-				*(uint32_t *)(text + r_offset) = value - (kaddr + r_offset + 4);
+				*(uint32_t *)(text + r_offset) = value - virt_addr_translate_to_kernel((uint32_t)text + r_offset + 4);
 				break;
 
 			default:
@@ -426,13 +438,13 @@ mod_relocate_text_section(void *text, int fd, struct ModInfo *info)
 			}
 
 			sec_index = rel_sym.st_shndx;
-			if ((sec_index < 0) || (sec_index >= MAX_NR_SEC))
+			if ((sec_index < 0) || (sec_index >= MAX_NR_SEC)) {
+				line = __LINE__;
 				goto out_index_out_of_range;
+			}
 
-			kaddr = virt_addr_translate_to_kernel( info->sec[sec_index].sh_addr );
-			cprintf("user to kernel address translation: %08x -> %08x \n", info->sec[sec_index].sh_addr, kaddr);
 			/* read-modify-write */
-			*(uint32_t *)(text + r_offset) = *(uint32_t *)(text + r_offset) + kaddr;
+			*(uint32_t *)(text + r_offset) += virt_addr_translate_to_kernel(info->sec[ sec_index ].sh_addr);
 		}
 	}
 
@@ -442,12 +454,8 @@ out_not_supported_reloc_type:
 	cprintf("This implementation is missing support for relocation type %d (line %d) \n", r_type, line);
 	return -E_NOT_SUPP;
 
-out_not_supported_sym_binding:
-	cprintf("This implementation is missing suuport for symbol binding type %d \n", ELF_ST_BIND(rel_sym.st_info));
-	return -E_NOT_SUPP;
-
 out_index_out_of_range:
-	cprintf("Section index out of range: %d \n", sec_index);
+	cprintf("Section index out of range: %d (line %d) \n", sec_index, line);
 	return -E_INVAL;
 }
 
@@ -665,13 +673,26 @@ kernel_symtab_unittest(void)
 
 /**
  * The magic formula that translates user-space address to
- * kernel address.
+ * kernel address. 
+ *  
+ * The calling site of this function should be considered 
+ * thoroughly. 
  */
 uint32_t
 virt_addr_translate_to_kernel(uint32_t va)
 {
+	uint32_t kaddr;
 	pte_t pgtab_entry = uvpt[PGNUM(va)];
-	return KADDR( PTE_ADDR( pgtab_entry )) + PGOFF(va);
+	if (pgtab_entry & PTE_P) {
+		kaddr = KADDR( PTE_ADDR( pgtab_entry )) + PGOFF(va);
+		dbg_printf("virtual address translation to kernel space: %08x -> %08x \n", va, kaddr);
+	}
+	else {
+		kaddr = 0;
+		cprintf("virtual address '%08x' could not be translated to the kernel space \n", va);
+	}
+
+	return kaddr;
 }
 // ------------------------
 

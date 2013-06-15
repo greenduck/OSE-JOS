@@ -1,17 +1,16 @@
 #include "inc/stdio.h"
 
-int random_num(void)
-{
-	volatile int num = num;
+static int c;
 
-	if (num < 0)
-		num *= -1;
-	return num;
+int transmogrify(int a, int b)
+{
+	return (a + b) * c;
 }
 
 int init_module(void)
 {
-	cprintf("Kernel module: Hello world (%d) \n", random_num());
+	c = 4;
+	cprintf("Kernel module: Hello world (%d) \n", transmogrify(5, 3));
 	return 0;
 }
 
