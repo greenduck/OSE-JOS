@@ -9,7 +9,7 @@
 #define KERNEL_SYMTAB_PREFIX	"kernel"
 #define MAX_NR_SEC		16
 
-#define DEBUG
+// #define DEBUG
 
 #ifdef DEBUG
 #define dbg_printf		cprintf
