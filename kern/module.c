@@ -1,4 +1,5 @@
 #include <inc/error.h>
+#include <inc/string.h>
 
 #include <kern/pmap.h>
 #include <kern/module.h>
@@ -53,5 +54,20 @@ module_init(KModInfo *info)
 
 	kmod_data = *info;
 	return kmod_data.init_module();
+}
+
+int
+module_cleanup(const char *name)
+{
+	if (strcmp(name, kmod_data.mod_name)) {
+		cprintf("module '%s' is not loaded \n", name);
+		return -E_INVAL;
+	}
+
+	kmod_data.cleanup_module();
+
+	module_unpin_memory(&kmod_data);
+	memset(&kmod_data, 0, sizeof(KModInfo));
+	return 0;
 }
 

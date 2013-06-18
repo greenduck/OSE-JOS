@@ -14,6 +14,7 @@ typedef struct {
 
 
 int module_init(KModInfo *info);
+int module_cleanup(const char *name);
 
 #endif	// JOS_KERN_MODULE_H
 

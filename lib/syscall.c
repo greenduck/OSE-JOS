@@ -125,3 +125,11 @@ sys_init_module(void *init_module)
 	return syscall(SYS_init_module, panic_on_error, (uint32_t)init_module, 0, 0, 0, 0);
 }
 
+int
+sys_cleanup_module(const char *mod_name)
+{
+	const int panic_on_error = 0;
+
+	return syscall(SYS_cleanup_module, panic_on_error, (uint32_t)mod_name, 0, 0, 0, 0);
+}
+

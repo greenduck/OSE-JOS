@@ -518,6 +518,12 @@ sys_init_module(KModInfo *mod_info)
 	return module_init(mod_info);
 }
 
+static int
+sys_cleanup_module(const char *name)
+{
+	return module_cleanup(name);
+}
+
 
 // Dispatches to the correct kernel function, passing the arguments.
 int32_t
@@ -557,6 +563,8 @@ syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, 
 		return sys_ipc_recv((void *)a1);
 	case SYS_init_module:
 		return sys_init_module((KModInfo *)a1);
+	case SYS_cleanup_module:
+		return sys_cleanup_module((const char *)a1);
 	default:
 		return -E_INVAL;
 	}

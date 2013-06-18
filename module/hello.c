@@ -53,6 +53,9 @@ int init_module(void)
 
 void cleanup_module(void)
 {
-	cprintf("Kernel module: Adios world \n");
+	// 'unregister' module
+	process_user_output = old_process_user_output;
+
+	cprintf("Elvis has left the building \n");
 }
 

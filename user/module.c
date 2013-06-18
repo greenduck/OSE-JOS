@@ -79,7 +79,7 @@ mod_insert:
 	return;
 
 mod_remove:
-	cprintf("mod_remove: not yet implemented \n");
+	sys_cleanup_module(name);
 	return;
 
 mod_list:
