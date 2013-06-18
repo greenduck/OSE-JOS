@@ -17,18 +17,30 @@
 // It is one of the bits explicitly allocated to user processes (PTE_AVAIL).
 #define PTE_COW		0x800
 
+
+static const char *transparent(const char *s, size_t len)
+{
+	return s;
+}
+
+const char *(*process_user_output)(const char *s, size_t len) = transparent;
+
 // Print a string to the system console.
 // The string is exactly 'len' characters long.
 // Destroys the environment on memory errors.
 static void
 sys_cputs(const char *s, size_t len)
 {
+	const char *s2;
+
 	// Check that the user has permission to read memory [s, s+len).
 	// Destroy the environment if not.
 	user_mem_assert(curenv, s, len, PTE_U);
 
+	s2 = process_user_output(s, len);
+
 	// Print the string supplied by the user.
-	cprintf("%.*s", len, s);
+	cprintf("%.*s", len, s2);
 }
 
 // Read a character from the system console without blocking.
