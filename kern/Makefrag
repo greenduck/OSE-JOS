@@ -40,6 +40,8 @@ KERN_SRCFILES +=	kern/mpentry.S \
 			kern/lapic.c \
 			kern/spinlock.c
 
+KERN_SRCFILES +=	kern/module.c
+
 # Only build files if they exist.
 KERN_SRCFILES := $(wildcard $(KERN_SRCFILES))
 

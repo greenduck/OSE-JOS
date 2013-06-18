@@ -11,6 +11,7 @@
 #include <kern/syscall.h>
 #include <kern/console.h>
 #include <kern/sched.h>
+#include <kern/module.h>
 
 // PTE_COW marks copy-on-write page table entries.
 // It is one of the bits explicitly allocated to user processes (PTE_AVAIL).
@@ -500,9 +501,9 @@ sys_ipc_recv(void *dstva)
 
 
 static int
-sys_init_module(void *init_module)
+sys_init_module(KModInfo *mod_info)
 {
-	return ((int (*)(void))init_module)();
+	return module_init(mod_info);
 }
 
 
@@ -543,7 +544,7 @@ syscall(uint32_t syscallno, uint32_t a1, uint32_t a2, uint32_t a3, uint32_t a4, 
 	case SYS_ipc_recv:
 		return sys_ipc_recv((void *)a1);
 	case SYS_init_module:
-		return sys_init_module((void *)a1);
+		return sys_init_module((KModInfo *)a1);
 	default:
 		return -E_INVAL;
 	}

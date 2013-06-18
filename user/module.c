@@ -3,6 +3,9 @@
 #include <inc/elf.h>
 #include <inc/memlayout.h>
 
+#include <kern/module.h>
+
+
 #define KERNEL_SYMTAB_PREFIX	"kernel"
 #define MAX_NR_SEC		16
 
@@ -100,6 +103,7 @@ mod_insert(const char *mod_filename)
 	int mod_fd;
 	int err;
 	void *text;
+	KModInfo kern_mod;
 
 	err = kernel_symtab_init();
 	if (err < 0)
@@ -135,7 +139,12 @@ mod_insert(const char *mod_filename)
 		goto out_cleanup_2;
 
 
-	err = sys_init_module(mod_info.init_module);
+	strcpy(kern_mod.mod_name, "unspecified");
+	kern_mod.mod_addr = virt_addr_translate_to_kernel((uint32_t)UTEMP);
+	kern_mod.mod_size = mod_info.tot_size;
+	kern_mod.init_module = mod_info.init_module;
+	kern_mod.cleanup_module = mod_info.cleanup_module;
+	err = sys_init_module(&kern_mod);
 	if (err != 0) {
 		cprintf("module loading has failed: %e \n", err);
 	}
