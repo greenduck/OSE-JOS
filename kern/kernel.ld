@@ -45,9 +45,6 @@ SECTIONS
 	/* The data segment */
 	.data : {
 		*(.data)
-		PROVIDE(__kernel_symtab = .);
-		*(.symtab);
-		BYTE(0)
 	}
 
 	PROVIDE(edata = .);
