@@ -1,0 +1,121 @@
+=== This template file contains questions you need to answer.
+=== Fill your answers on appropriate blank lines only.
+=== Don't start any line with three equal signs "===".
+=== Don't edit any lines starting from three equal signs.
+=== Use C notation to write numbers: 42 for decimal, 0x2a for hexadecimal.
+=== We may check most of the answers automatically, so "forty two" or
+=== "26+16" won't work for this example. Spaces are mostly ignored, so
+=== "  42  " is OK (without quotes of course). 
+=== When asked to specify address & instruction, do it in the form of
+=== gdb output "ADDRESS: INSTRUCTION", for example "0x7c26:  or  $0x1,%eax"
+=== Don't make lines longer than 80 characters. You don't need to fit your
+=== answer in a single line, you can start a new line at will.
+=== However, when asked to fill "a table" make each table raw a singleline.
+
+=== Q Compare kern/mpentry.S side by side with boot/boot.S. Bearing in
+===   mind that kern/mpentry.S is compiled and linked to run above KERNBASE
+===   just like everything else in the kernel, what is the purpose of macro
+===   MPBOOTPHYS? Why is it necessary in kern/mpentry.S but not in
+===   boot/boot.S? In other words, what could go wrong if it were
+===   omitted in kern/mpentry.S?
+===   (free form)
+      boot.S is loaded by the BIOS into standardized load address 0000:7c00.
+      On the other hand, mpentry.S is loaded into non-standard load address
+      (which still has to comply with particular requirements, such as being
+      below 640kB). As the compiler cannot be aware of the intended code load
+      address, we make use of a macro ('MPBOOTPHYS()') that translates each
+      address relatively to the beginning of the code.
+      If MPBOOTPHYS() macro omitted, it would lead to much unpredictable
+      behavior, as the CPU would access irrelevant / unmapped memory locations.
+
+=== Q It seems that using the big kernel lock guarantees that only one
+===   CPU can run the kernel code at a time. Why do we still need
+===   separate kernel stacks for each CPU? Describe a scenario in
+===   which using a shared kernel stack will go wrong, even with the
+===   protection of the big kernel lock.
+===   (free form)
+      The CPU already runs kernel code when it acquires the BKL. Thus
+      prior to acquiring BKL, kernel resources of the CPUs have to be
+      separated.
+      Think of a CPU executing kernel code / holding BKL. Another CPU
+      traps switching to (the same) kernel stack - it will ruin the 1-st
+      CPU state prior to acquiring the BKL.
+
+=== Q Whenever the kernel switches from one environment to another, it
+===   must ensure the old environment's registers are saved so they
+===   can be restored properly later. Where does this happen?
+===   (JOS function name)
+      trap()  -- 'curenv->env_tf = *tf;'
+
+=== Q In your implementation of env_run() you should have called
+===   lcr3(). Before and after the call to lcr3(), your code makes
+===   references (at least it should) to the variable e, the argument
+===   to env_run. Upon loading the %cr3 register, the addressing
+===   context used by the MMU is instantly changed. But a virtual
+===   address (namely e) has meaning relative to a given address 
+===   context--the address context specifies the physical address to
+===   which the virtual address maps. Why can the pointer e be
+===   dereferenced both before and after the addressing switch?
+===   (one sentence, free form)
+      Kernel pointers remain valid after addressing switch because
+      every user-space process maps kernel memory above UTOP in the
+      same manner, merely copying this part of kern_pgdir to e->env_pgdir.
+      Being kernel pointer 'e' stays valid as well.
+
+=== Q In Ex. 4, what happens if the user environment runs out of
+===   space on the exception stack?
+===   (one setence, free form)
+      We will bound-check ESP running away from the exception stack
+      and terminate the process.
+
+=== Q In dumpfork.c, the first time you call duppage(), the function
+===   allocates a page in one environment (env A) and then maps it in
+===   another (env B). At whataddress is the page mapped in env A, and
+===   at what address is it mapped in env B?
+===   (ADDR(in env A):ADDR(in env B) (example: 0xAAAAAAAA:0xBBBBBBBB)
+      addr:UTEMP
+
+====================================================================
+=== Q What challenge(s) have you chosen to implement? (specify
+===   challenge numbers separated by spaces, if more than one)
+      sfork()
+
+=== Q If the challenge requires changing the kernel source, list the
+===   files which you have changed/added during implementation.
+===   (one file per line, relative to lab directory containing .git/)
+      lib/fork.c
+      lib/libmain.c
+      inc/lib.h
+      user/spin.c -- test
+
+=== Q Describe you solution.
+===   (free form, up to 500 words, don't need to use all 500!)
+      The implementation of sfork() is (almost) identical to the implementation
+      of fork(), with only one difference - it distinguishes what pages should be
+      COW-ed and what pages should be shared. (Normally, the code of the 2 functions
+      should really be unified.)
+      
+      'thisenv' ...
+      One possible way to implement thread-local storage is to COW yet another page.
+      However, we took a simpler approach: out thread-local storage is the stack of
+      libmain(). As libmain() lives as long as the whole environment - this is safe.
+      Through some simple C-magic 'thisenv' becomes a (global) pointer to thread-local
+      location.
+      
+      'spin' user process is modified to use sfork() and exercise simple shared variable
+      communication (still being able to pass the grading script).
+      
+      Known problems:
+      sfork() cannot co-exist well with fork().
+      Consider the following scenario:
+      A newly fork()-ed environment sforks(). Now these 2 environments share pages that
+      are marked ReadOnly-Until-CopiedOnWrite.
+      Upon CopyOnWrite these pages will split, effectively breaking shared memory between
+      the environments.
+
+
+DryScore: 10
+WetScore: 90/90
+LatePenalty:  -25
+Total:  75/100
+
